@@ -64,6 +64,11 @@ int performGetWithPoll(HTTPClient& http, unsigned long timeout_ms) {
   return HTTPC_ERROR_READ_TIMEOUT;
 }
 
+bool readResponseBody(HTTPClient& http, String& payload) {
+  payload = http.getString();
+  return payload.length() > 0;
+}
+
 bool readResponseBodyWithPoll(HTTPClient& http, String& payload,
                               unsigned long timeout_ms) {
   WiFiClient* stream = http.getStreamPtr();
@@ -446,7 +451,7 @@ bool fetchFlightDataJson(const String& url, const char* callsign,
 
   String payload;
   if (code == HTTP_CODE_OK) {
-    readResponseBodyWithPoll(http, payload, config::kFlightLookupTimeoutMs);
+    readResponseBody(http, payload);
   }
   http.end();
 
@@ -558,7 +563,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   }
 
   String payload;
-  if (!readResponseBodyWithPoll(http, payload, kAdsbRequestTimeoutMs)) {
+  if (!readResponseBody(http, payload)) {
     Serial.println("adsb: empty response");
     http.end();
     return false;
