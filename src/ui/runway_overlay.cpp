@@ -18,6 +18,7 @@ namespace ui::runway {
 namespace {
 
 constexpr float kKmPerDeg = 111.0f;
+constexpr float kDegToRad = 0.0174532925f;
 constexpr size_t kMaxAirportLabels = 32;
 
 bool s_in_range[data::large_airports::kAirportCount];
@@ -77,10 +78,27 @@ void applyRunwayLabelStyle(lgfx::LGFXBase& gfx) {
 
 float e7ToDeg(int32_t e7) { return static_cast<float>(e7) * 1e-7f; }
 
+/**
+ * East-west scale at the radar center: a degree of longitude is 111 km only at
+ * the equator and shrinks with cos(latitude) — 67 km at 53°N. Cached because it
+ * only changes when the configured position does. Mirrors the helper in
+ * radar_display.cpp; keep the two in step.
+ */
+float lonScale() {
+  static float cached_lat = 1000.0f;  // outside valid latitudes, forces a fill
+  static float cached_scale = 1.0f;
+  const float lat = static_cast<float>(services::location::lat());
+  if (lat != cached_lat) {
+    cached_lat = lat;
+    cached_scale = cosf(lat * kDegToRad);
+  }
+  return cached_scale;
+}
+
 void offsetKmFromCenter(float lat, float lon, float* dx_km, float* dy_km,
                         float* dist_km) {
-  *dx_km =
-      static_cast<float>(lon - services::location::lon()) * kKmPerDeg;
+  *dx_km = static_cast<float>(lon - services::location::lon()) * kKmPerDeg *
+           lonScale();
   *dy_km =
       static_cast<float>(lat - services::location::lat()) * kKmPerDeg;
   *dist_km = sqrtf((*dx_km) * (*dx_km) + (*dy_km) * (*dy_km));

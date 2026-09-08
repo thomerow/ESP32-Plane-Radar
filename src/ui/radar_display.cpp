@@ -55,9 +55,6 @@ bool s_footer_metrics_ready = false;
 bool s_footer_use_vlw = false;
 float s_footer_vlw_size = 0.36f;
 
-int s_scale_label_max_w = 0;
-int s_scale_label_h = 0;
-
 lgfx::LovyanGFX* s_draw = &tft;
 LGFX_Sprite s_frame(&tft);
 bool s_frame_ready = false;
@@ -153,20 +150,6 @@ void initLabelMetrics() {
   }
 
   applyScaleStyle();
-  s_scale_label_h = tft.fontHeight();
-  s_scale_label_max_w = 0;
-  char label[12];
-  for (size_t i = 0; i < radar::kRangePresetCount; ++i) {
-    for (bool miles : {false, true}) {
-      radar::formatRing3Label(label, sizeof(label), radar::kRangePresets[i].ring3_km,
-                              miles);
-      const int w = tft.textWidth(label);
-      if (w > s_scale_label_max_w) {
-        s_scale_label_max_w = w;
-      }
-    }
-  }
-
   s_label_metrics_ready = true;
 }
 
@@ -229,11 +212,28 @@ void initPalette() {
 }
 
 constexpr float kKmPerDeg = 111.0f;
+constexpr float kDegToRad = 0.0174532925f;
+
+/**
+ * East-west scale at the radar center: a degree of longitude is 111 km only at
+ * the equator and shrinks with cos(latitude) — 67 km at 53°N. Cached because it
+ * only changes when the configured position does.
+ */
+float lonScale() {
+  static float cached_lat = 1000.0f;  // outside valid latitudes, forces a fill
+  static float cached_scale = 1.0f;
+  const float lat = static_cast<float>(services::location::lat());
+  if (lat != cached_lat) {
+    cached_lat = lat;
+    cached_scale = cosf(lat * kDegToRad);
+  }
+  return cached_scale;
+}
 
 void offsetKmFromCenter(float lat, float lon, float* dx_km, float* dy_km,
                         float* dist_km) {
-  *dx_km =
-      static_cast<float>(lon - services::location::lon()) * kKmPerDeg;
+  *dx_km = static_cast<float>(lon - services::location::lon()) * kKmPerDeg *
+           lonScale();
   *dy_km =
       static_cast<float>(lat - services::location::lat()) * kKmPerDeg;
   *dist_km = sqrtf((*dx_km) * (*dx_km) + (*dy_km) * (*dy_km));

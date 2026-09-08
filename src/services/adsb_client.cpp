@@ -15,7 +15,6 @@ namespace services::adsb {
 
 namespace {
 
-constexpr char kApiBase[] = "https://opendata.adsb.fi/api/v3/lat/";
 constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kAdsbRequestTimeoutMs = 10000;
@@ -66,46 +65,6 @@ int performGetWithPoll(HTTPClient& http, unsigned long timeout_ms) {
 
 bool readResponseBody(HTTPClient& http, String& payload) {
   payload = http.getString();
-  return payload.length() > 0;
-}
-
-bool readResponseBodyWithPoll(HTTPClient& http, String& payload,
-                              unsigned long timeout_ms) {
-  WiFiClient* stream = http.getStreamPtr();
-  if (stream == nullptr) {
-    return false;
-  }
-
-  const int content_length = http.getSize();
-  if (content_length > 0) {
-    payload.reserve(static_cast<unsigned>(content_length + 1));
-  }
-
-  uint8_t buffer[512];
-  const unsigned long started_ms = millis();
-  while (millis() - started_ms < timeout_ms) {
-    pollNetwork();
-    const int available = stream->available();
-    if (available > 0) {
-      const int to_read =
-          available > static_cast<int>(sizeof(buffer)) ? static_cast<int>(sizeof(buffer))
-                                                       : available;
-      const int read_bytes = stream->readBytes(buffer, to_read);
-      if (read_bytes > 0) {
-        payload.concat(reinterpret_cast<const char*>(buffer),
-                       static_cast<unsigned>(read_bytes));
-      }
-    }
-    if (content_length > 0 &&
-        static_cast<int>(payload.length()) >= content_length) {
-      break;
-    }
-    if (!http.connected() && stream->available() <= 0) {
-      break;
-    }
-    delay(1);
-  }
-
   return payload.length() > 0;
 }
 
@@ -538,7 +497,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   s_last_center_lon = center_lon;
   const float dist_nm = kmToNauticalMiles(fetch_radius_km);
 
-  String url = kApiBase;
+  String url = config::kAdsbApiBase;
   url += String(center_lat, 6);
   url += "/lon/";
   url += String(center_lon, 6);

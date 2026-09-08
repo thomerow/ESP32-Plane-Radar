@@ -198,7 +198,9 @@ void formatWeatherLine(char* out, size_t out_len) {
   if (settings::temperatureFahrenheit()) {
     temperature = temperature * 9.0f / 5.0f + 32.0f;
   }
-  snprintf(out, out_len, "%s %.0f%c RH%d%%", conditionLabel(s_weather_code),
+  // %.0f consumes a double; lroundf returns long, which would misread this
+  // argument and shift every one after it.
+  snprintf(out, out_len, "%s %ld%c RH%d%%", conditionLabel(s_weather_code),
            lroundf(temperature), unit, s_humidity_percent);
 }
 

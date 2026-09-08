@@ -119,6 +119,10 @@ void handleUploadChunk() {
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
     s_upload_error = "Upload aborted";
     Update.end();
+    // handleUploadDone() never runs for an aborted upload, so clear the flag
+    // here — otherwise loop() keeps short-circuiting and the radar stays frozen
+    // on the update screen until the next power cycle.
+    s_in_progress = false;
   }
 }
 

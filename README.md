@@ -22,7 +22,7 @@ After Wi‑Fi is saved, the device reconnects automatically; the radar runs in t
 | **Short tap** | Cycle range preset (5 → 10 → 15 → 25 km); saved to flash |
 | **Hold 3 s** | Factory-reset Wi‑Fi, location, units, display settings, and OTA password; reboot into setup portal |
 
-During setup you can also hold BOOT at power-on to force a credential reset (same as the long press).
+The 3 s hold works at any time the firmware is running, including on the **Connecting** screen — useful if saved credentials no longer work. Do not hold BOOT while powering up: GPIO9 low at reset puts the ESP32‑C3 into its ROM download mode and the firmware never starts.
 
 ## Wi‑Fi setup portal
 
@@ -37,6 +37,8 @@ During setup you can also hold BOOT at power-on to force a credential reset (sam
 1. Open **`http://plane-radar.local`** or **`http://<device-ip>`** (e.g. from your router or serial log at boot)
 2. Choose **Setup**
 3. Change coordinates (by hand or on the map), display options, units, or OTA password; save
+
+> **The portal is not password-protected.** Only the firmware-update routes (`/firmware`, `/update`) ask for a password. Anyone who can reach the device on your network can open **Setup**, read the Wi‑Fi page (which lists nearby networks) and change the configuration. The portal starts by itself whenever Wi‑Fi is up. Treat the device as trusted-LAN-only.
 
 The same portal runs on the setup AP and on the device’s LAN IP while connected to Wi‑Fi. mDNS hostname is `plane-radar` → **plane-radar.local** (`kPortalHostname` in `config.h`). Some clients resolve `.local` slowly; use the IP if needed.
 
@@ -68,8 +70,8 @@ manually. The device itself never fetches map data.
 | **Show current weather** | Shows current condition, temperature, and humidity |
 | **Temperature in Fahrenheit** | Uses °F instead of °C |
 | **Use 24-hour clock** | Uses 24-hour instead of compact 12-hour time |
-| **Radar text size (%)** | Scales radar labels and footer text from 80–130%; default is 110% |
-| **OTA password** | Password for firmware uploads; username is `admin` |
+| **Radar text size (%)** | Scales radar labels and footer text from 80–130% in steps of 5; default is 110% |
+| **OTA password** | Password for firmware uploads; username is `admin`. Leave blank to keep the current one |
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
 
@@ -78,7 +80,7 @@ After a reset, the device reboots and shows the setup screen immediately (no “
 ### Grid
 
 - Dark blue background, subdued green rings and crosshairs
-- White **N / S / E / W** at the bezel; range label on the **east** spoke (ring 3 = ¾ of outer radius)
+- White **N / S / E / W** at the bezel; range label on the **east** spoke, drawn just inside the outer ring (the value is the ring‑3 distance = ¾ of outer radius)
 - White center dot
 
 Layout and colors: `include/ui/radar_theme.h`.
@@ -103,14 +105,14 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 ### Aircraft
 
 - **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring), route / detailed type / altitude tags
-- **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
+- **Beyond ~88 % of the outer radius** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
 - **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
 - **Route fallback** — the callsign is shown until route data arrives, and remains the fallback when no route is known
 - **Detailed type** — aircraft data is compacted for the display (for example `Boeing 737-800` → `B737-800`)
 
-As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
+As range increases (or aircraft approach), targets move inward; rim dots become full symbols once they are inside ~88 % of the outer radius.
 
-Origin/destination is not transmitted in ADS-B messages. The firmware enriches each active callsign through [ADSBDB](https://www.adsbdb.com/), rate-limits lookups, and caches successful results for six hours (misses for ten minutes). It first requests aircraft and route together, then retries the callsign-only endpoint when ADSBDB does not recognize the aircraft hex code. Route databases are based on known/scheduled callsigns, so private, repositioning, diverted, or recently changed flights may still have no route or an imperfect match.
+Origin/destination is not transmitted in ADS-B messages. The firmware enriches each active callsign through [ADSBDB](https://www.adsbdb.com/), rate-limits lookups, and caches successful results for six hours (misses for ten minutes). It first requests aircraft and route together, then retries the callsign-only endpoint whenever that returned no route. Route databases are based on known/scheduled callsigns, so private, repositioning, diverted, or recently changed flights may still have no route or an imperfect match.
 
 ### Weather and time
 
@@ -131,8 +133,10 @@ footer text defaults to 110% and can be adjusted from 80–130% in the same page
 - Fetch radius: `ui::radar::fetchRadiusKm()` — scales with the active preset to roughly the screen edge (so rim dots have data)
 - Poll interval: `kAdsbFetchIntervalMs` (3 s) in `config.h`
 - Ground aircraft hidden by default (`kAdsbShowGroundAircraft`)
+- Hard caps: 64 aircraft per fetch, 32 airport labels per frame, 48 cached enrichment results
+- Wi‑Fi TX power is capped at 8.5 dBm in both AP and STA mode (`wifi_setup.cpp`) to keep weak USB supplies stable — raise it if range matters more than brown-out margin
 
-The device sends the configured coordinates to adsb.fi and Open-Meteo, and sends active callsign/Mode-S identifiers to ADSBDB.
+The device sends the configured coordinates to adsb.fi and Open-Meteo, and sends active callsign/Mode-S identifiers to ADSBDB. These calls use HTTPS but **do not verify the server certificate** (`setInsecure()`) — there is no room for a certificate bundle, so the traffic is encrypted but not authenticated.
 
 While the **Setup** page is open, your browser — not the device — additionally loads Leaflet from cdnjs, map tiles from openstreetmap.org, and, if you use the search box, sends that query to Nominatim.
 
@@ -147,7 +151,7 @@ Edit **`include/config.h`** for hardware and behavior:
 | BOOT | `kBootPin`, `kBootResetHoldMs`, `kBootTapMinMs` |
 | Display SPI | pins, `kDisplayInvert`, `kDisplayRgbOrder`, `kDisplaySpiWriteHz` |
 | Default location | `kDefaultRadarLat`, `kDefaultRadarLon` (until portal overrides) |
-| ADS-B | `kAdsbFetchIntervalMs`, `kAdsbShowGroundAircraft` |
+| ADS-B | `kAdsbApiBase`, `kAdsbFetchIntervalMs`, `kAdsbShowGroundAircraft` |
 | Flight enrichment | lookup interval, timeout, and cache durations |
 | Weather | endpoint, request timeout, and refresh interval |
 | Defaults | initial OTA credentials |
@@ -180,15 +184,36 @@ include/
     weather_time.h
 data/
   ui_font.vlw              — embedded smooth UI font (Noto Sans Bold)
+partitions/
+  plane_radar.csv          — dual-OTA 4 MB layout
 scripts/
-  build_large_airports.py
+  build_large_airports.py  — regenerates the embedded airport/runway tables
+  merge_firmware.py        — post-build hook: `pio run -t merge`
+  merge-firmware.sh        — writes release/plane-radar-merged.bin
 src/
   main.cpp
   data/
     large_airports_data.cpp
   hardware/
+    display.cpp
+    display_font.cpp
   ui/
+    radar_display.cpp
+    radar_range.cpp
+    runway_overlay.cpp
+    status_screens.cpp
   services/
+    wifi_setup.cpp
+    radar_location.cpp
+    adsb_client.cpp
+    display_settings.cpp
+    ota_update.cpp
+    weather_time.cpp
+platformio.ini
+.github/workflows/
+  build.yml                — build on push/PR
+  release.yml              — attach firmware to a tagged release
+LICENSE
 ```
 
 ## Wiring (GC9A01 ↔ ESP32-C3 Super Mini)
@@ -259,7 +284,7 @@ Never upload the merged/full image to the OTA form; it contains the bootloader a
 
 | Workflow | When | Output |
 |----------|------|--------|
-| [Build](.github/workflows/build.yml) | Push / PR to `main` | Artifact `plane-radar-supermini` (merged + split `.bin` files, ~90 days) |
+| [Build](.github/workflows/build.yml) | Push to `main`/`master`, any PR, manual | Artifact `plane-radar-supermini` (merged + split `.bin` files, ~90 days) |
 | [Release](.github/workflows/release.yml) | Git tag `v*` (e.g. `v1.0.0`) | GitHub Release `-full.bin` and `-ota.bin` assets + checksums |
 
 To ship a version users can download:
