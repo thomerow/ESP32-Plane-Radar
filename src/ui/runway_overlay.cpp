@@ -318,4 +318,62 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
   }
 }
 
+void runwayDiagnostics(Print& out) {
+  char buf[224];
+  const float radius_km = radar::fetchRadiusKm();
+
+  if (!radar::showRunways()) {
+    out.print(F("<h2>Airports</h2><p><small>Runway overlay is switched off in "
+                "Setup.</small></p>"));
+    return;
+  }
+
+  size_t shown = 0;
+  uint16_t last_airport = 0xFFFF;
+  for (size_t i = 0; i < data::large_airports::kRunwayCount; ++i) {
+    const auto& rw = data::large_airports::kRunways[i];
+    const auto& ap = data::large_airports::kAirports[rw.airport_idx];
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float dist = 0.0f;
+    offsetKmFromCenter(e7ToDeg(ap.lat_e7), e7ToDeg(ap.lon_e7), &dx, &dy, &dist);
+    if (dist > radius_km) {
+      continue;
+    }
+
+    if (shown == 0) {
+      snprintf(buf, sizeof(buf),
+               "<h2>Airports within %.2f km</h2><div class=\"wrap\">"
+               "<table class=\"grid\"><tr><th>ICAO</th><th>Distance</th>"
+               "<th>Runway from</th><th>to</th><th>On screen</th></tr>",
+               radius_km);
+      out.print(buf);
+    }
+
+    int x1 = 0;
+    int y1 = 0;
+    int x2 = 0;
+    int y2 = 0;
+    latLonToScreen(e7ToDeg(rw.le_lat_e7), e7ToDeg(rw.le_lon_e7), &x1, &y1);
+    latLonToScreen(e7ToDeg(rw.he_lat_e7), e7ToDeg(rw.he_lon_e7), &x2, &y2);
+    const float len_px = sqrtf(static_cast<float>((x2 - x1) * (x2 - x1) +
+                                                  (y2 - y1) * (y2 - y1)));
+    snprintf(buf, sizeof(buf),
+             "<tr><td>%s</td><td>%.2f km</td><td>%d, %d</td><td>%d, %d</td>"
+             "<td>%.1f px</td></tr>",
+             ap.ident, dist, x1, y1, x2, y2, len_px);
+    out.print(buf);
+    last_airport = rw.airport_idx;
+    ++shown;
+  }
+
+  if (shown == 0) {
+    snprintf(buf, sizeof(buf),
+             "<h2>Airports</h2><p><small>No large airport within %.2f km of "
+             "the radar center.</small></p>", radius_km);
+    out.print(buf);
+    return;
+  }
+  out.print(F("</table></div>"));
+}
 }  // namespace ui::runway

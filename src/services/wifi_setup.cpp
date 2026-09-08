@@ -17,6 +17,7 @@
 #include "services/display_settings.h"
 #include "services/ota_update.h"
 #include "services/radar_location.h"
+#include "services/diagnostics.h"
 #include "ui/radar_range.h"
 #include "ui/status_screens.h"
 
@@ -327,6 +328,11 @@ void attachSettingsRoutes() {
   // Register before WiFiManager's built-in /paramsave handler so the custom
   // confirmation can redirect back to Setup.
   s_wm.server->on("/paramsave", HTTP_POST, handleSettingsSaved);
+s_wm.server->on("/debug", HTTP_GET, []() {
+    if (s_wm.server) {
+      services::diag::handleRequest(*s_wm.server);
+    }
+  });
 }
 
 void attachPortalParams(WiFiManager& wm) {

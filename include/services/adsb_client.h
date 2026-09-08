@@ -1,8 +1,24 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace services::adsb {
+
+/** Counters behind the diagnostics page; cheap enough to keep always on. */
+struct Stats {
+  uint32_t fetch_ok = 0;
+  uint32_t fetch_failed = 0;
+  /** Last non-OK HTTP/HTTPClient code, 0 while nothing has failed yet. */
+  int last_error_code = 0;
+  unsigned long last_ok_ms = 0;
+  uint32_t enrich_ok = 0;
+  uint32_t enrich_failed = 0;
+  /** Enrichment cache entries currently holding data. */
+  size_t cache_used = 0;
+};
+
+const Stats& stats();
 
 struct Aircraft {
   float lat;

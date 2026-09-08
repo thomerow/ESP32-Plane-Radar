@@ -831,4 +831,58 @@ void radarDisplayRefreshAircraft() {
   radarDisplayDraw();
 }
 
+void radarProjectionDiagnostics(Print& out) {
+  char buf[224];
+  const float outer_km = radar::rangeCurrent().outer_km;
+
+  snprintf(buf, sizeof(buf),
+           "<tr><th>Longitude scale</th><td>%.4f &mdash; 1&deg; of longitude "
+           "spans %.1f km here</td></tr>",
+           lonScale(), kKmPerDeg * lonScale());
+  out.print(buf);
+  snprintf(buf, sizeof(buf),
+           "<tr><th>Plot scale</th><td>%.2f px/km, rim dots beyond %.2f km"
+           "</td></tr><tr><th>Frame sprite</th><td>%s</td></tr></table>",
+           static_cast<double>(radar::kGridOuterRadius) / outer_km,
+           innerRingMaxKm(),
+           s_frame_ready ? "allocated (115 KB)"
+                         : "NOT allocated &mdash; drawing direct to panel");
+  out.print(buf);
+
+  const size_t count = services::adsb::aircraftCount();
+  const services::adsb::Aircraft* list = services::adsb::aircraftList();
+  snprintf(buf, sizeof(buf), "<h2>Aircraft (%u)</h2>",
+           static_cast<unsigned>(count));
+  out.print(buf);
+  if (count == 0) {
+    out.print(F("<p><small>None in range right now.</small></p>"));
+    return;
+  }
+
+  out.print(F("<div class=\"wrap\"><table class=\"grid\"><tr><th>Callsign</th>"
+              "<th>Hex</th><th>Latitude</th><th>Longitude</th><th>East km</th>"
+              "<th>North km</th><th>Distance</th><th>Screen</th><th>Drawn as"
+              "</th><th>Route</th><th>Type</th><th>Alt</th></tr>"));
+  for (size_t i = 0; i < count; ++i) {
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float dist = 0.0f;
+    offsetKmFromCenter(list[i].lat, list[i].lon, &dx, &dy, &dist);
+    int x = 0;
+    int y = 0;
+    latLonToScreen(list[i].lat, list[i].lon, &x, &y);
+    snprintf(buf, sizeof(buf),
+             "<tr><td>%s</td><td>%s</td><td>%.5f</td><td>%.5f</td>"
+             "<td>%+.2f</td><td>%+.2f</td><td>%.2f km</td><td>%d, %d</td>"
+             "<td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+             list[i].callsign, list[i].hex, list[i].lat, list[i].lon, dx, dy,
+             dist, x, y, dist > innerRingMaxKm() ? "rim dot" : "symbol",
+             list[i].route[0] != '\0' ? list[i].route : "&mdash;",
+             list[i].type[0] != '\0' ? list[i].type : "&mdash;",
+             list[i].alt[0] != '\0' ? list[i].alt : "&mdash;");
+    out.print(buf);
+  }
+  out.print(F("</table></div>"));
+}
+
 }  // namespace ui

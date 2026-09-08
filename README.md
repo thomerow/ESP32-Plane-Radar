@@ -38,7 +38,7 @@ The 3 s hold works at any time the firmware is running, including on the **Conne
 2. Choose **Setup**
 3. Change coordinates (by hand or on the map), display options, units, or OTA password; save
 
-> **The portal is not password-protected.** Only the firmware-update routes (`/firmware`, `/update`) ask for a password. Anyone who can reach the device on your network can open **Setup**, read the Wi‑Fi page (which lists nearby networks) and change the configuration. The portal starts by itself whenever Wi‑Fi is up. Treat the device as trusted-LAN-only.
+> **The portal is not password-protected.** Only the firmware-update routes (`/firmware`, `/update`) ask for a password. Anyone who can reach the device on your network can open **Setup**, read the Wi‑Fi page (which lists nearby networks), view **Diagnostics** (position and tracked aircraft) and change the configuration. The portal starts by itself whenever Wi‑Fi is up. Treat the device as trusted-LAN-only.
 
 The same portal runs on the setup AP and on the device’s LAN IP while connected to Wi‑Fi. mDNS hostname is `plane-radar` → **plane-radar.local** (`kPortalHostname` in `config.h`). Some clients resolve `.local` slowly; use the IP if needed.
 
@@ -74,6 +74,41 @@ manually. The device itself never fetches map data.
 | **OTA password** | Password for firmware uploads; username is `admin`. Leave blank to keep the current one |
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
+
+## Diagnostics page
+
+**Setup → Diagnostics**, or `http://plane-radar.local/debug` directly. A
+read-only status page that reports what the firmware is actually computing,
+rather than what it should be computing:
+
+| Section | Shows |
+|---------|-------|
+| **Radar and projection** | Center, active range preset, fetch radius, pixels per km, the `cos(latitude)` longitude scale, and whether the 115 KB frame sprite got its memory |
+| **Aircraft** | Every tracked aircraft with its raw position, the east/north offset in km, distance, the exact screen pixel it is drawn at, and whether it renders as a symbol or a rim dot |
+| **Airports** | Runway segments in range with their screen endpoints |
+| **ADS-B service** | Fetch and enrichment counters, last error code, cache usage |
+| **Weather and time** | The formatted footer strings, even when the footer is switched off |
+| **Network** | SSID, RSSI, channel, IP, MAC, TX power |
+| **System** | Build date, **sketch MD5**, running OTA partition, uptime, reset reason, chip, temperature |
+| **Memory** | Free heap, largest contiguous block, lowest free ever |
+
+Two of these are worth knowing about:
+
+**Sketch MD5** equals the md5sum of `.pio/build/supermini/firmware.bin`, so you
+can tell at a glance whether the build you just made is the one running — the
+`Build date` field cannot do that reliably, because it comes from a library
+translation unit that is not always recompiled.
+
+**Largest free block** is the number that explains failed HTTPS calls. A TLS
+handshake needs a large contiguous allocation, and this board has no PSRAM. When
+that figure falls well under ~40 KB, ADS-B or weather fetches start failing with
+`start_ssl_client: -1` in the serial log even though the free-heap total still
+looks comfortable. The frame sprite (240×240 at 16 bpp = 115 KB) is allocated
+once and held for the life of the process, which is what keeps the ceiling low.
+
+The page streams itself in ~1 KB chunks instead of building the whole document
+in RAM, and costs nothing when nobody requests it. Like the rest of the portal
+it has **no password**.
 
 ## Radar display
 
@@ -179,6 +214,7 @@ include/
     wifi_setup.h
     radar_location.h
     adsb_client.h
+    diagnostics.h
     display_settings.h
     ota_update.h
     weather_time.h
@@ -207,6 +243,7 @@ src/
     radar_location.cpp
     adsb_client.cpp
     display_settings.cpp
+    diagnostics.cpp
     ota_update.cpp
     weather_time.cpp
 platformio.ini

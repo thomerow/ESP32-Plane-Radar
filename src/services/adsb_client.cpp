@@ -38,6 +38,14 @@ struct EnrichmentCacheEntry {
 };
 
 EnrichmentCacheEntry s_enrichment_cache[kEnrichmentCacheSize];
+Stats s_stats;
+
+/** Record a failed fetch and pass the failure on to the caller. */
+bool fetchFailed(int code) {
+  ++s_stats.fetch_failed;
+  s_stats.last_error_code = code;
+  return false;
+}
 
 void pollNetwork() {
   if (s_poll_fn != nullptr) {
@@ -488,6 +496,16 @@ void applyCachedEnrichment(Aircraft* plane) {
 
 void setPollFn(PollFn fn) { s_poll_fn = fn; }
 
+const Stats& stats() {
+  s_stats.cache_used = 0;
+  for (size_t i = 0; i < kEnrichmentCacheSize; ++i) {
+    if (s_enrichment_cache[i].hex[0] != '\0') {
+      ++s_stats.cache_used;
+    }
+  }
+  return s_stats;
+}
+
 size_t aircraftCount() { return s_aircraft_count; }
 
 const Aircraft* aircraftList() { return s_aircraft; }
@@ -510,7 +528,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   HTTPClient http;
   if (!http.begin(client, url)) {
     Serial.println("adsb: http.begin failed");
-    return false;
+    return fetchFailed(0);
   }
 
   http.setTimeout(kAdsbRequestTimeoutMs);
@@ -518,14 +536,14 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   if (code != HTTP_CODE_OK) {
     Serial.printf("adsb: HTTP %d\n", code);
     http.end();
-    return false;
+    return fetchFailed(code);
   }
 
   String payload;
   if (!readResponseBody(http, payload)) {
     Serial.println("adsb: empty response");
     http.end();
-    return false;
+    return fetchFailed(0);
   }
   http.end();
 
@@ -533,8 +551,11 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   const DeserializationError err = deserializeJson(doc, payload);
   if (err) {
     Serial.printf("adsb: JSON parse error: %s\n", err.c_str());
-    return false;
+    return fetchFailed(0);
   }
+
+  ++s_stats.fetch_ok;
+  s_stats.last_ok_ms = millis();
 
   JsonArray ac = doc["ac"].as<JsonArray>();
   if (ac.isNull()) {
@@ -619,10 +640,12 @@ bool enrichOnePending() {
     // Network failures are retried after a short global backoff.
     *entry = {};
     s_last_enrichment_failure_ms = millis();
+    ++s_stats.enrich_failed;
     return false;
   }
 
   s_last_enrichment_failure_ms = 0;
+  ++s_stats.enrich_ok;
   entry->refreshed_ms = millis();
   entry->has_data = entry->route[0] != '\0' || entry->type[0] != '\0';
   const bool changed = applyCacheEntry(&plane, *entry);
