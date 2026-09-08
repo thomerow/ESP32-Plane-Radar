@@ -83,6 +83,88 @@ WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
                                 kCoordParamLen, kLatitudeInputAttrs);
 WiFiManagerParameter s_param_lon("radar_lon", "Longitude (deg)", "0",
                                 kCoordParamLen, kLongitudeInputAttrs);
+
+// Map picker for the two coordinate fields above. Leaflet and the OpenStreetMap
+// tiles are fetched by the browser from a CDN, so the map only appears when the
+// browser has internet — i.e. on the LAN portal, not on the setup AP. When the
+// load fails the block hides itself and the numeric inputs remain the only way
+// in. The picker never posts anything of its own; it just writes radar_lat and
+// radar_lon, which the existing /paramsave handler already stores.
+//
+// Two constraints from the surrounding page: the markup lands inside
+// WiFiManager's settings <form>, so buttons must be type="button" and Enter has
+// to be swallowed; and the portal CSS styles every <div>, which would shift
+// Leaflet's absolutely positioned panes, so #map_pick resets that.
+constexpr char kMapPickerHtml[] = R"HTML(
+<style>
+#map_pick{height:260px;padding:0;margin:0;border:1px solid #ccc;border-radius:.3rem;background:#e8e6e1}
+#map_pick div{padding:0;margin:0}
+#map_pick .leaflet-control{margin:10px}
+#map_pick .leaflet-control-attribution{margin:0;padding:0 4px;font-size:10px}
+#map_row{display:flex;gap:5px;padding:0;margin:0 0 5px}
+#map_q{flex:1;margin:0}
+#map_go{width:auto;flex:0 0 auto;margin:0;padding:0 14px;font-size:1em;line-height:2rem}
+#map_msg{padding:0;margin:3px 0 5px;font-size:.85em;color:#555}
+</style>
+<div id="map_ui" style="display:none;padding:0;margin:0">
+<div id="map_row"><input id="map_q" type="text" placeholder="Search a place">
+<button type="button" id="map_go">Find</button></div>
+<div id="map_pick"></div></div>
+<div id="map_msg">Loading map...</div>
+<script>(function(){
+var CDN='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
+var la=document.getElementById('radar_lat'),lo=document.getElementById('radar_lon');
+if(!la||!lo)return;
+var ui=document.getElementById('map_ui'),msg=document.getElementById('map_msg');
+var map=null,mark=null,settled=false;
+function say(t){msg.textContent=t}
+function num(el){var v=parseFloat(el.value);return isFinite(v)?v:0}
+function fail(){if(settled)return;settled=true;
+say('Map needs internet access - enter the coordinates manually.')}
+function write(ll){ll=ll.wrap();la.value=ll.lat.toFixed(6);lo.value=ll.lng.toFixed(6);
+say('Selected '+la.value+', '+lo.value+' - remember to save.')}
+function place(ll,z){ll=ll.wrap();mark.setLatLng(ll);map.setView(ll,z||map.getZoom());write(ll)}
+function search(){var q=document.getElementById('map_q').value.replace(/^\s+|\s+$/g,'');
+if(!q)return;say('Searching...');
+fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q='+encodeURIComponent(q))
+.then(function(r){return r.json()})
+.then(function(j){if(!j||!j.length){say('No match for that place.');return}
+place(L.latLng(parseFloat(j[0].lat),parseFloat(j[0].lon)),12)})
+.catch(function(){say('Search failed - try again.')})} 
+function init(){if(settled)return;settled=true;
+ui.style.display='block';
+var c=L.latLng(num(la),num(lo));
+map=L.map('map_pick').setView(c,11);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+mark=L.marker(c,{draggable:true}).addTo(map);
+window.addEventListener('load',function(){map.invalidateSize()});
+map.on('click',function(e){mark.setLatLng(e.latlng);write(e.latlng)});
+mark.on('dragend',function(){write(mark.getLatLng())});
+function sync(){var a=parseFloat(la.value),b=parseFloat(lo.value);
+if(isFinite(a)&&isFinite(b))place(L.latLng(a,b))}
+la.addEventListener('change',sync);lo.addEventListener('change',sync);
+document.getElementById('map_go').addEventListener('click',search);
+document.getElementById('map_q').addEventListener('keydown',function(e){
+if(e.keyCode===13){e.preventDefault();search()}});
+say('Click the map or drag the marker to set the radar center.')}
+// Wait for the parser before measuring: the portal's .wrap is an inline-block,
+// so its shrink-to-fit width is only final once the rest of the form exists.
+// With Leaflet served from cache, onload fires mid-parse and the map would size
+// itself to a container that is still growing, leaving tiles short of the edge.
+function start(){if(document.readyState==='loading'){
+document.addEventListener('DOMContentLoaded',init)}else{init()}}
+// The stylesheet goes in first: the browser holds the script below until a
+// preceding pending stylesheet has loaded, so Leaflet always starts styled.
+var css=document.createElement('link');css.rel='stylesheet';css.href=CDN+'leaflet.css';
+document.head.appendChild(css);
+var js=document.createElement('script');js.src=CDN+'leaflet.js';
+js.onload=start;js.onerror=fail;document.head.appendChild(js);
+setTimeout(fail,8000);
+})();</script>
+)HTML";
+WiFiManagerParameter s_param_map_picker(kMapPickerHtml);
+
 char s_miles_checkbox_attrs[32] = "type=\"checkbox\"";
 WiFiManagerParameter s_param_miles("use_miles", "Display distances in miles", "T", 2,
                                    s_miles_checkbox_attrs, WFM_LABEL_AFTER);
@@ -251,6 +333,7 @@ void attachPortalParams(WiFiManager& wm) {
   refreshPortalParamDefaults();
   wm.addParameter(&s_param_lat);
   wm.addParameter(&s_param_lon);
+  wm.addParameter(&s_param_map_picker);
   wm.addParameter(&s_param_miles);
   wm.addParameter(&s_param_runways);
   wm.addParameter(&s_param_footer);

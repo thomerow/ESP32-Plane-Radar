@@ -36,17 +36,32 @@ During setup you can also hold BOOT at power-on to force a credential reset (sam
 
 1. Open **`http://plane-radar.local`** or **`http://<device-ip>`** (e.g. from your router or serial log at boot)
 2. Choose **Setup**
-3. Change coordinates, display options, units, or OTA password; save
+3. Change coordinates (by hand or on the map), display options, units, or OTA password; save
 
 The same portal runs on the setup AP and on the device’s LAN IP while connected to Wi‑Fi. mDNS hostname is `plane-radar` → **plane-radar.local** (`kPortalHostname` in `config.h`). Some clients resolve `.local` slowly; use the IP if needed.
 
 Changing coordinates no longer requires a credential reset. The new position is validated in the browser and firmware, saved to NVS, and used by the next aircraft/weather refresh.
 
+### Picking the location on a map
+
+**Setup** shows an OpenStreetMap picker under the coordinate fields. Click the
+map or drag the marker to set the radar center, or type a place into the search
+box (**Find**) to jump there — the latitude and longitude fields follow along.
+Editing a field by hand still works and moves the marker to match. Nothing is
+stored until you press **Save**.
+
+Leaflet and the map tiles are loaded by your browser from a CDN, so the picker
+only appears when **your browser** has internet access — that is, when you
+reconfigure the device over your LAN (`http://plane-radar.local`). On the
+first-time setup AP `PlaneRadar-Setup` there is no internet, so the map hides
+itself, notes that it needs a connection, and you enter the coordinates
+manually. The device itself never fetches map data.
+
 **Custom fields** (stored in NVS):
 
 | Field | Purpose |
 |-------|---------|
-| **Latitude / Longitude** | Radar center and ADS-B query position (defaults in `config.h` until set) |
+| **Latitude / Longitude** | Radar center and ADS-B query position (defaults in `config.h` until set); settable by hand or on the map picker |
 | **Display distances in miles** | Ring scale label in **mi** instead of **km** (e.g. `6mi` vs `10km`) |
 | **Show airport runways** | Major-airport runway overlay on the radar (off to hide) |
 | **Show weather and clock** | Enables/disables the complete bottom footer |
@@ -118,6 +133,8 @@ footer text defaults to 110% and can be adjusted from 80–130% in the same page
 - Ground aircraft hidden by default (`kAdsbShowGroundAircraft`)
 
 The device sends the configured coordinates to adsb.fi and Open-Meteo, and sends active callsign/Mode-S identifiers to ADSBDB.
+
+While the **Setup** page is open, your browser — not the device — additionally loads Leaflet from cdnjs, map tiles from openstreetmap.org, and, if you use the search box, sends that query to Nominatim.
 
 ## Configuration
 
