@@ -69,6 +69,32 @@ constexpr char kWeatherApiBase[] = "https://api.open-meteo.com/v1/forecast";
 constexpr unsigned long kWeatherFetchIntervalMs = 15UL * 60UL * 1000UL;
 constexpr unsigned long kWeatherRequestTimeoutMs = 6000UL;
 
+// --- Satellite background (EOX Sentinel-2 cloudless, CC BY-NC-SA 4.0) ---
+/** WMS GetMap base; the client appends BBOX (EPSG:4326) and the image size. */
+constexpr char kSatelliteWmsBase[] =
+    "https://tiles.maps.eox.at/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap"
+    "&LAYERS=s2cloudless-2025&STYLES=&SRS=EPSG:4326&FORMAT=image/jpeg";
+constexpr unsigned long kSatelliteRequestTimeoutMs = 15000UL;
+/** Wait this long after a failed download before trying again. */
+constexpr unsigned long kSatelliteRetryMs = 60UL * 1000UL;
+
+// --- Rain radar overlay (RainViewer Weather Maps API, free tier: zoom <= 7) ---
+constexpr char kRainIndexUrl[] =
+    "https://api.rainviewer.com/public/weather-maps.json";
+/** RainViewer publishes a new frame every 10 minutes. */
+constexpr unsigned long kRainCheckIntervalMs = 5UL * 60UL * 1000UL;
+constexpr unsigned long kRainRetryMs = 60UL * 1000UL;
+constexpr unsigned long kRainRequestTimeoutMs = 10000UL;
+/** Hide the overlay once the newest frame is older than this. */
+constexpr long kRainMaxAgeSec = 40L * 60L;
+
+/**
+ * This panel shows red and blue swapped with the current rgb_order setting —
+ * the aircraft color in initPalette() already compensates. Images and new
+ * overlay colors use this flag to do the same.
+ */
+constexpr bool kDisplaySwapRedBlue = kDisplayRgbOrder;
+
 // --- User-facing defaults ---
 constexpr char kOtaUsername[] = "admin";
 /** Change this in the web settings before exposing the device to other users. */

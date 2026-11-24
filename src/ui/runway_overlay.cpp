@@ -2,6 +2,7 @@
 
 #include <lgfx/v1/lgfx_fonts.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
@@ -182,13 +183,25 @@ bool segmentIntersectsDisc(int x0, int y0, int x1, int y1) {
   return (t0 >= 0.0f && t0 <= 1.0f) || (t1 >= 0.0f && t1 <= 1.0f);
 }
 
-void drawBoldRunwayLabel(lgfx::LGFXBase& gfx, const char* ident, int mx, int my) {
+void drawBoldRunwayLabel(lgfx::LGFXBase& gfx, const char* ident, int mx, int my,
+                         BackdropFn backdrop) {
   const int tw = gfx.textWidth(ident);
   const int th = gfx.fontHeight();
   constexpr int kPadX = 2;
   constexpr int kPadY = 1;
 
   gfx.setTextDatum(textdatum_t::bottom_center);
+  if (backdrop != nullptr) {
+    // Satellite view: semi-transparent backdrop instead of an opaque box, so
+    // the runway under the label stays visible.
+    backdrop(mx - tw / 2 - kPadX - 1, my - th - kPadY, tw + kPadX * 2 + 2,
+             th + kPadY);
+    // Drawn once, not faux-bold: on the image the backdrop already gives
+    // contrast and the triple stroke smeared the letters together.
+    gfx.setTextColor(radar::kColorRunwayLabel);
+    gfx.drawString(ident, mx, my);
+    return;
+  }
   const int left = mx - tw / 2 - kPadX;
   const int top = my - th - kPadY;
   gfx.fillRect(left, top, tw + kPadX * 2, th + kPadY, radar::kColorBackground);
@@ -198,7 +211,8 @@ void drawBoldRunwayLabel(lgfx::LGFXBase& gfx, const char* ident, int mx, int my)
   gfx.drawString(ident, mx, my);
 }
 
-bool drawRunwayLine(lgfx::LGFXBase& gfx, const data::large_airports::Runway& rw) {
+bool drawRunwayLine(lgfx::LGFXBase& gfx, const data::large_airports::Runway& rw,
+                    bool outlined) {
   const float le_lat = e7ToDeg(rw.le_lat_e7);
   const float le_lon = e7ToDeg(rw.le_lon_e7);
   const float he_lat = e7ToDeg(rw.he_lat_e7);
@@ -218,6 +232,10 @@ bool drawRunwayLine(lgfx::LGFXBase& gfx, const data::large_airports::Runway& rw)
   clipPointToOuterRing(x0, y0, &x1, &y1);
   clipPointToOuterRing(x1, y1, &x0, &y0);
 
+  if (outlined) {
+    gfx.drawWideLine(x0, y0, x1, y1, radar::kRunwayLineHalfWidth + 1.0f,
+                     0x0000);
+  }
   gfx.drawWideLine(x0, y0, x1, y1, radar::kRunwayLineHalfWidth,
                    radar::kColorRunway);
   return true;
@@ -253,22 +271,64 @@ void clipPointOntoOuterRing(int* x, int* y) {
   *y = cy + static_cast<int>(lroundf(static_cast<float>(dy) * scale));
 }
 
-void drawAirportLabel(lgfx::LGFXBase& gfx,
-                      const data::large_airports::Airport& ap) {
+/**
+ * Place the label beside the airport's runways instead of on them: below the
+ * runways for airports south of the center, above them otherwise (always away
+ * from the center), falling back to the other side near the screen edge.
+ */
+void drawAirportLabel(lgfx::LGFXBase& gfx, uint16_t airport_idx,
+                      BackdropFn backdrop) {
+  const auto& ap = data::large_airports::kAirports[airport_idx];
   int ax = 0;
   int ay = 0;
   latLonToScreen(e7ToDeg(ap.lat_e7), e7ToDeg(ap.lon_e7), &ax, &ay);
+  const int raw_x = ax;
+  const int raw_y = ay;
   clipPointOntoOuterRing(&ax, &ay);
 
   int lx = 0;
   int ly = 0;
-  offsetLabelFromCenter(ax, ay, &lx, &ly);
-  drawBoldRunwayLabel(gfx, ap.ident, lx, ly);
+  if (ax != raw_x || ay != raw_y) {
+    // Airport beyond the ring: keep the label at the rim marker.
+    offsetLabelFromCenter(ax, ay, &lx, &ly);
+    drawBoldRunwayLabel(gfx, ap.ident, lx, ly, backdrop);
+    return;
+  }
+
+  int top = ay;
+  int bottom = ay;
+  for (size_t i = 0; i < data::large_airports::kRunwayCount; ++i) {
+    const auto& rw = data::large_airports::kRunways[i];
+    if (rw.airport_idx != airport_idx) {
+      continue;
+    }
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    latLonToScreen(e7ToDeg(rw.le_lat_e7), e7ToDeg(rw.le_lon_e7), &x0, &y0);
+    latLonToScreen(e7ToDeg(rw.he_lat_e7), e7ToDeg(rw.he_lon_e7), &x1, &y1);
+    top = std::min(top, std::min(y0, y1));
+    bottom = std::max(bottom, std::max(y0, y1));
+  }
+
+  const int th = gfx.fontHeight();
+  const int tw = gfx.textWidth(ap.ident);
+  const int gap = radar::kRunwayLabelGapPx + 1;
+  // drawBoldRunwayLabel anchors at bottom_center.
+  const int below_y = bottom + gap + th;
+  const int above_y = top - gap;
+  const bool prefer_below = ay > radar::kCenterY;
+  if (prefer_below) {
+    ly = below_y <= radar::kSize - 2 ? below_y : above_y;
+  } else {
+    ly = above_y - th >= 1 ? above_y : below_y;
+  }
+  lx = std::max(tw / 2 + 3, std::min(ax, radar::kSize - tw / 2 - 3));
+  drawBoldRunwayLabel(gfx, ap.ident, lx, ly, backdrop);
 }
 
 }  // namespace
 
-void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
+void drawLargeAirportRunways(lgfx::LGFXBase& gfx, BackdropFn backdrop) {
+  const bool outlined = backdrop != nullptr;
   if (!radar::showRunways()) {
     return;
   }
@@ -298,7 +358,7 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
     if (!s_in_range[ap_idx]) {
       continue;
     }
-    if (!drawRunwayLine(gfx, rw)) {
+    if (!drawRunwayLine(gfx, rw, outlined)) {
       continue;
     }
     if (!s_label_pending[ap_idx] && label_count < kMaxAirportLabels) {
@@ -314,7 +374,7 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
   initRunwayLabelStyle(gfx);
   applyRunwayLabelStyle(gfx);
   for (size_t i = 0; i < label_count; ++i) {
-    drawAirportLabel(gfx, data::large_airports::kAirports[label_airports[i]]);
+    drawAirportLabel(gfx, label_airports[i], backdrop);
   }
 }
 

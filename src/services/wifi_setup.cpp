@@ -210,6 +210,39 @@ WiFiManagerParameter s_param_text_scale_output(
     "o=document.getElementById('text_scale_value');"
     "if(s&&o)o.value=s.value+'%';})();</script>");
 
+char s_satellite_checkbox_attrs[32] = "type=\"checkbox\"";
+WiFiManagerParameter s_param_satellite(
+    "sat_bg", "Satellite background (hides the grid)", "T", 2,
+    s_satellite_checkbox_attrs, WFM_LABEL_AFTER);
+
+WiFiManagerParameter s_param_after_satellite_break("<br/>");
+
+constexpr int kSatBrightnessParamLen = 4;
+constexpr char kSatBrightnessAttrs[] =
+    "type=\"range\" min=\"20\" max=\"100\" step=\"5\" "
+    "oninput=\"document.getElementById('sat_pct_value').value="
+    "this.value+'%'\"";
+WiFiManagerParameter s_param_sat_brightness(
+    "sat_pct", "Satellite image brightness", "100", kSatBrightnessParamLen,
+    kSatBrightnessAttrs);
+WiFiManagerParameter s_param_sat_brightness_output(
+    "<div style=\"text-align:center;margin-top:-5px\">"
+    "<output id=\"sat_pct_value\" for=\"sat_pct\"></output></div>"
+    "<script>(function(){var s=document.getElementById('sat_pct'),"
+    "o=document.getElementById('sat_pct_value');"
+    "if(s&&o)o.value=s.value+'%';})();</script>");
+
+char s_rain_checkbox_attrs[32] = "type=\"checkbox\"";
+WiFiManagerParameter s_param_rain("rain", "Rain radar overlay", "T", 2,
+                                  s_rain_checkbox_attrs, WFM_LABEL_AFTER);
+
+WiFiManagerParameter s_param_imagery_credits(
+    "<div style=\"font-size:.8em;color:#666;margin:4px 0 10px\">"
+    "Satellite: Sentinel-2 cloudless by EOX IT Services GmbH (contains "
+    "modified Copernicus Sentinel data), CC BY-NC-SA 4.0. Rain radar: "
+    "RainViewer (free for personal use). Both receive the radar location."
+    "</div>");
+
 constexpr char kOtaPasswordAttrs[] =
     "type=\"password\" autocomplete=\"new-password\" "
     "placeholder=\"leave blank to keep current\"";
@@ -257,6 +290,17 @@ void refreshPortalParamDefaults() {
   snprintf(text_scale_buf, sizeof(text_scale_buf), "%d",
            services::settings::textScalePercent());
   s_param_text_scale.setValue(text_scale_buf, kTextScaleParamLen);
+  refreshCheckboxAttrs(s_satellite_checkbox_attrs,
+                       sizeof(s_satellite_checkbox_attrs),
+                       services::settings::satelliteBackground());
+  s_param_satellite.setValue("T", 2);
+  char sat_pct_buf[kSatBrightnessParamLen + 1];
+  snprintf(sat_pct_buf, sizeof(sat_pct_buf), "%d",
+           services::settings::satelliteBrightnessPercent());
+  s_param_sat_brightness.setValue(sat_pct_buf, kSatBrightnessParamLen);
+  refreshCheckboxAttrs(s_rain_checkbox_attrs, sizeof(s_rain_checkbox_attrs),
+                       services::settings::rainOverlay());
+  s_param_rain.setValue("T", 2);
   s_param_ota_password.setValue("", kOtaPasswordParamLen);
 }
 
@@ -270,7 +314,8 @@ void onPortalParamsSaved() {
   services::settings::saveFromPortal(
       s_param_footer.getValue(), s_param_weather.getValue(),
       s_param_fahrenheit.getValue(), s_param_clock24.getValue(),
-      s_param_text_scale.getValue(),
+      s_param_text_scale.getValue(), s_param_satellite.getValue(),
+      s_param_sat_brightness.getValue(), s_param_rain.getValue(),
       s_param_ota_password.getValue());
 }
 
@@ -284,6 +329,9 @@ void savePortalParamsFromRequest(WebServer& web) {
   const String fahrenheit = web.arg("temp_f");
   const String clock24 = web.arg("clock_24");
   const String text_scale = web.arg("text_scale");
+  const String satellite = web.arg("sat_bg");
+  const String sat_brightness = web.arg("sat_pct");
+  const String rain = web.arg("rain");
   const String ota_password = web.arg("ota_password");
 
   if (!services::location::saveFromStrings(latitude.c_str(),
@@ -294,7 +342,8 @@ void savePortalParamsFromRequest(WebServer& web) {
   ui::radar::saveRunwaysFromPortal(runways.c_str());
   services::settings::saveFromPortal(
       footer.c_str(), weather.c_str(), fahrenheit.c_str(), clock24.c_str(),
-      text_scale.c_str(), ota_password.c_str());
+      text_scale.c_str(), satellite.c_str(), sat_brightness.c_str(),
+      rain.c_str(), ota_password.c_str());
   refreshPortalParamDefaults();
 }
 
@@ -333,6 +382,11 @@ s_wm.server->on("/debug", HTTP_GET, []() {
       services::diag::handleRequest(*s_wm.server);
     }
   });
+  s_wm.server->on("/screen.bmp", HTTP_GET, []() {
+    if (s_wm.server) {
+      services::diag::handleScreenshot(*s_wm.server);
+    }
+  });
 }
 
 void attachPortalParams(WiFiManager& wm) {
@@ -349,6 +403,12 @@ void attachPortalParams(WiFiManager& wm) {
   wm.addParameter(&s_param_after_clock_break);
   wm.addParameter(&s_param_text_scale);
   wm.addParameter(&s_param_text_scale_output);
+  wm.addParameter(&s_param_satellite);
+  wm.addParameter(&s_param_after_satellite_break);
+  wm.addParameter(&s_param_sat_brightness);
+  wm.addParameter(&s_param_sat_brightness_output);
+  wm.addParameter(&s_param_rain);
+  wm.addParameter(&s_param_imagery_credits);
   wm.addParameter(&s_param_ota_password);
   wm.setSaveParamsCallback(onPortalParamsSaved);
 }

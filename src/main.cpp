@@ -9,8 +9,11 @@
 #include "hardware/display.h"
 #include "services/adsb_client.h"
 #include "services/display_settings.h"
+#include "services/file_cache.h"
 #include "services/ota_update.h"
 #include "services/radar_location.h"
+#include "services/rain_radar.h"
+#include "services/satellite_map.h"
 #include "services/weather_time.h"
 #include "services/wifi_setup.h"
 #include "ui/radar_display.h"
@@ -53,6 +56,25 @@ void handleBootButton() {
   }
 }
 
+/** Satellite image for the current view; downloads once per range/location. */
+bool refreshSatelliteIfNeeded() {
+  if (!services::settings::satelliteBackground()) {
+    return false;
+  }
+  return services::satmap::refreshIfNeeded(services::location::lat(),
+                                           services::location::lon(),
+                                           ui::radarViewHalfWidthKm());
+}
+
+bool refreshRainIfDue() {
+  if (!services::settings::rainOverlay()) {
+    return false;
+  }
+  return services::rain::refreshIfDue(services::location::lat(),
+                                      services::location::lon(),
+                                      ui::radarViewHalfWidthKm());
+}
+
 void fetchAndDrawAircraft() {
   const float fetch_km = ui::radar::fetchRadiusKm();
   if (!services::adsb::fetchUpdate(services::location::lat(),
@@ -82,6 +104,10 @@ void setup() {
   services::settings::init();
   services::adsb::setPollFn(wifiLoop);
   services::weather::setPollFn(wifiLoop);
+  services::satmap::setPollFn(wifiLoop);
+  services::rain::setPollFn(wifiLoop);
+  services::rain::setScratchProvider(ui::radarFrameScratch);
+  services::files::mount();
 
   if (wifiSetupConnect()) {
     showRadarIfConnected();
@@ -125,6 +151,10 @@ void loop() {
       fetchAndDrawAircraft();
     } else if (services::weather::refreshIfDue(
                    services::location::lat(), services::location::lon())) {
+      ui::radarDisplayRefreshAircraft();
+    } else if (refreshSatelliteIfNeeded()) {
+      ui::radarDisplayRefreshAircraft();
+    } else if (refreshRainIfDue()) {
       ui::radarDisplayRefreshAircraft();
     } else if (services::adsb::enrichOnePending()) {
       ui::radarDisplayRefreshAircraft();

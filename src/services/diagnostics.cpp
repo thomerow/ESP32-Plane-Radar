@@ -10,7 +10,10 @@
 #include "config.h"
 #include "services/adsb_client.h"
 #include "services/display_settings.h"
+#include "services/file_cache.h"
 #include "services/radar_location.h"
+#include "services/rain_radar.h"
+#include "services/satellite_map.h"
 #include "services/weather_time.h"
 #include "ui/radar_display.h"
 #include "ui/radar_range.h"
@@ -224,6 +227,23 @@ void writeRadar(Print& out) {
   rowf(out, "Units", "%s", ui::radar::useMiles() ? "miles" : "kilometres");
   rowf(out, "Runway overlay", "%s", ui::radar::showRunways() ? "on" : "off");
   rowf(out, "Text scale", "%d %%", services::settings::textScalePercent());
+  rowf(out, "Background", "%s",
+       services::settings::satelliteBackground() ? "satellite" : "dark radar");
+  if (services::settings::satelliteBackground()) {
+    rowf(out, "Satellite brightness", "%d %%",
+         services::settings::satelliteBrightnessPercent());
+    services::satmap::diagnostics(out, services::location::lat(),
+                                  services::location::lon(),
+                                  ui::radarViewHalfWidthKm());
+  }
+  rowf(out, "Rain overlay", "%s",
+       services::settings::rainOverlay() ? "on" : "off");
+  if (services::settings::rainOverlay()) {
+    services::rain::diagnostics(out);
+  }
+  rowf(out, "Image cache", "%u of %u KB used (LittleFS)",
+       static_cast<unsigned>(services::files::usedBytes() / 1024),
+       static_cast<unsigned>(services::files::totalBytes() / 1024));
   // Appends its own rows and closes the table before starting the aircraft one.
   ui::radarProjectionDiagnostics(out);
 }
@@ -278,7 +298,66 @@ void writeFooterNote(Print& out) {
       "</main></body></html>"));
 }
 
+void putLe16(uint8_t* p, uint16_t v) {
+  p[0] = static_cast<uint8_t>(v);
+  p[1] = static_cast<uint8_t>(v >> 8);
+}
+
+void putLe32(uint8_t* p, uint32_t v) {
+  putLe16(p, static_cast<uint16_t>(v));
+  putLe16(p + 2, static_cast<uint16_t>(v >> 16));
+}
+
 }  // namespace
+
+void handleScreenshot(WebServer& web) {
+  constexpr int kSide = 240;
+  constexpr uint32_t kHeaderSize = 14 + 40 + 12;  // file + info + RGB565 masks
+  constexpr uint32_t kRowBytes = kSide * 2;
+  constexpr uint32_t kFileSize = kHeaderSize + kRowBytes * kSide;
+
+  uint16_t row[kSide];
+  if (!ui::radarFrameRow(0, row)) {
+    web.send(503, "text/plain", "No frame buffer (sprite not allocated)");
+    return;
+  }
+
+  uint8_t header[kHeaderSize] = {};
+  header[0] = 'B';
+  header[1] = 'M';
+  putLe32(header + 2, kFileSize);
+  putLe32(header + 10, kHeaderSize);
+  putLe32(header + 14, 40);
+  putLe32(header + 18, kSide);
+  putLe32(header + 22, static_cast<uint32_t>(-kSide));  // top-down rows
+  putLe16(header + 26, 1);
+  putLe16(header + 28, 16);
+  putLe32(header + 30, 3);  // BI_BITFIELDS
+  putLe32(header + 34, kRowBytes * kSide);
+  putLe32(header + 54, 0xF800);
+  putLe32(header + 58, 0x07E0);
+  putLe32(header + 62, 0x001F);
+
+  web.setContentLength(kFileSize);
+  web.sendHeader("Cache-Control", "no-store");
+  web.send(200, "image/bmp", "");
+  web.sendContent(reinterpret_cast<const char*>(header), kHeaderSize);
+
+  uint8_t line[kRowBytes];
+  for (int y = 0; y < kSide; ++y) {
+    if (!ui::radarFrameRow(y, row)) {
+      memset(row, 0, sizeof(row));
+    }
+    for (int x = 0; x < kSide; ++x) {
+      uint16_t v = row[x];
+      if (config::kDisplaySwapRedBlue) {
+        v = static_cast<uint16_t>((v & 0x07E0) | (v >> 11) | ((v & 0x1F) << 11));
+      }
+      putLe16(line + x * 2, v);
+    }
+    web.sendContent(reinterpret_cast<const char*>(line), kRowBytes);
+  }
+}
 
 void handleRequest(WebServer& web) {
   web.setContentLength(CONTENT_LENGTH_UNKNOWN);

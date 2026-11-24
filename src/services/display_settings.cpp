@@ -18,6 +18,9 @@ constexpr char kKeyFahrenheit[] = "tempF";
 constexpr char kKeyClock24[] = "time24";
 constexpr char kKeyTextScale[] = "fontPct";
 constexpr char kKeyOtaPassword[] = "otaPass";
+constexpr char kKeySatellite[] = "satBg";
+constexpr char kKeySatBrightness[] = "satPct";
+constexpr char kKeyRain[] = "rain";
 
 char s_ota_password[kOtaPasswordMaxLen + 1] = {};
 bool s_footer_enabled = true;
@@ -25,6 +28,9 @@ bool s_weather_enabled = true;
 bool s_temperature_fahrenheit = false;
 bool s_use_24_hour_clock = true;
 int s_text_scale_percent = kTextScaleDefaultPercent;
+bool s_satellite_background = false;
+int s_sat_brightness_percent = kSatBrightnessDefaultPercent;
+bool s_rain_overlay = false;
 
 bool checkboxChecked(const char* value) {
   if (value == nullptr || value[0] == '\0') {
@@ -76,7 +82,17 @@ int clampTextScalePercent(int value) {
   return value;
 }
 
-bool parseTextScalePercent(const char* value, int* result) {
+int clampSatBrightnessPercent(int value) {
+  if (value < kSatBrightnessMinPercent) {
+    return kSatBrightnessMinPercent;
+  }
+  if (value > kSatBrightnessMaxPercent) {
+    return kSatBrightnessMaxPercent;
+  }
+  return value;
+}
+
+bool parsePercent(const char* value, int* result) {
   if (value == nullptr || value[0] == '\0' || result == nullptr) {
     return false;
   }
@@ -93,7 +109,7 @@ bool parseTextScalePercent(const char* value, int* result) {
     return false;
   }
 
-  *result = clampTextScalePercent(static_cast<int>(parsed));
+  *result = static_cast<int>(parsed);
   return true;
 }
 
@@ -105,6 +121,9 @@ void loadDefaults() {
   s_temperature_fahrenheit = false;
   s_use_24_hour_clock = true;
   s_text_scale_percent = kTextScaleDefaultPercent;
+  s_satellite_background = false;
+  s_sat_brightness_percent = kSatBrightnessDefaultPercent;
+  s_rain_overlay = false;
 }
 
 void persist() {
@@ -117,6 +136,9 @@ void persist() {
   prefs.putBool(kKeyFahrenheit, s_temperature_fahrenheit);
   prefs.putBool(kKeyClock24, s_use_24_hour_clock);
   prefs.putInt(kKeyTextScale, s_text_scale_percent);
+  prefs.putBool(kKeySatellite, s_satellite_background);
+  prefs.putInt(kKeySatBrightness, s_sat_brightness_percent);
+  prefs.putBool(kKeyRain, s_rain_overlay);
   prefs.putString(kKeyOtaPassword, s_ota_password);
   prefs.end();
 }
@@ -137,6 +159,10 @@ void init() {
   s_use_24_hour_clock = prefs.getBool(kKeyClock24, true);
   s_text_scale_percent = clampTextScalePercent(
       prefs.getInt(kKeyTextScale, kTextScaleDefaultPercent));
+  s_satellite_background = prefs.getBool(kKeySatellite, false);
+  s_sat_brightness_percent = clampSatBrightnessPercent(
+      prefs.getInt(kKeySatBrightness, kSatBrightnessDefaultPercent));
+  s_rain_overlay = prefs.getBool(kKeyRain, false);
 
   String value = prefs.getString(kKeyOtaPassword, config::kDefaultOtaPassword);
   copyCleanText(value.c_str(), s_ota_password, sizeof(s_ota_password));
@@ -157,21 +183,35 @@ bool use24HourClock() { return s_use_24_hour_clock; }
 
 int textScalePercent() { return s_text_scale_percent; }
 
+bool satelliteBackground() { return s_satellite_background; }
+
+int satelliteBrightnessPercent() { return s_sat_brightness_percent; }
+
+bool rainOverlay() { return s_rain_overlay; }
+
 const char* otaPassword() { return s_ota_password; }
 
 void saveFromPortal(const char* footer_checkbox, const char* weather_checkbox,
                     const char* fahrenheit_checkbox,
                     const char* clock24_checkbox,
                     const char* text_scale_percent_value,
+                    const char* satellite_checkbox,
+                    const char* sat_brightness_percent_value,
+                    const char* rain_checkbox,
                     const char* ota_password_value) {
   s_footer_enabled = checkboxChecked(footer_checkbox);
   s_weather_enabled = checkboxChecked(weather_checkbox);
   s_temperature_fahrenheit = checkboxChecked(fahrenheit_checkbox);
   s_use_24_hour_clock = checkboxChecked(clock24_checkbox);
-  int text_scale_percent = s_text_scale_percent;
-  if (parseTextScalePercent(text_scale_percent_value, &text_scale_percent)) {
-    s_text_scale_percent = text_scale_percent;
+  int percent = 0;
+  if (parsePercent(text_scale_percent_value, &percent)) {
+    s_text_scale_percent = clampTextScalePercent(percent);
   }
+  s_satellite_background = checkboxChecked(satellite_checkbox);
+  if (parsePercent(sat_brightness_percent_value, &percent)) {
+    s_sat_brightness_percent = clampSatBrightnessPercent(percent);
+  }
+  s_rain_overlay = checkboxChecked(rain_checkbox);
 
   char password[kOtaPasswordMaxLen + 1] = {};
   copyCleanText(ota_password_value, password, sizeof(password));
@@ -181,9 +221,12 @@ void saveFromPortal(const char* footer_checkbox, const char* weather_checkbox,
   }
 
   persist();
-  Serial.printf("Display footer: %s, weather: %s, text: %d%%\n",
-                s_footer_enabled ? "on" : "off",
-                s_weather_enabled ? "on" : "off", s_text_scale_percent);
+  Serial.printf(
+      "Display footer: %s, weather: %s, text: %d%%, satellite: %s (%d%%), "
+      "rain: %s\n",
+      s_footer_enabled ? "on" : "off", s_weather_enabled ? "on" : "off",
+      s_text_scale_percent, s_satellite_background ? "on" : "off",
+      s_sat_brightness_percent, s_rain_overlay ? "on" : "off");
 }
 
 void clear() {
