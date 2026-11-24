@@ -225,8 +225,9 @@ OVERCAST 82F RH100%
 21:45 25 JUL
 ```
 
-Disable just the weather row or the complete footer in **Setup**. Radar and
-footer text defaults to 110% and can be adjusted from 80–130% in the same page.
+The footer and the weather row are off on a freshly flashed device; switch
+them on in **Setup**. Radar and footer text defaults to 110% and can be
+adjusted from 80–130% in the same page.
 
 ### ADS-B
 
