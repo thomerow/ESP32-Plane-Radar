@@ -71,6 +71,9 @@ manually. The device itself never fetches map data.
 | **Temperature in Fahrenheit** | Uses °F instead of °C |
 | **Use 24-hour clock** | Uses 24-hour instead of compact 12-hour time |
 | **Radar text size (%)** | Scales radar labels and footer text from 80–130% in steps of 5; default is 110% |
+| **Satellite background** | Sentinel-2 satellite image of the visible area instead of the dark radar background; hides rings, crosshairs and the range label (see below) |
+| **Satellite image brightness (%)** | Dims the satellite image from 20–100% in steps of 5 so symbols and tags stay readable; default is 100% |
+| **Rain radar overlay** | Semi-transparent RainViewer precipitation layer, in both background modes |
 | **OTA password** | Password for firmware uploads; username is `admin`. Leave blank to keep the current one |
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
@@ -91,6 +94,15 @@ rather than what it should be computing:
 | **Network** | SSID, RSSI, channel, IP, MAC, TX power |
 | **System** | Build date, **sketch MD5**, running OTA partition, uptime, reset reason, chip, temperature |
 | **Memory** | Free heap, largest contiguous block, lowest free ever |
+
+The **Radar and projection** section also reports the background mode, whether
+the satellite image for the current view is cached and how long it took to
+decode, the age and rain coverage of the current rain radar frame, and how much
+of the LittleFS image cache is in use.
+
+**`http://plane-radar.local/screen.bmp`** returns the last rendered frame as a
+240×240 BMP, colored the way the panel shows it — handy for checking a layout
+change without photographing the display.
 
 Two of these are worth knowing about:
 
@@ -120,6 +132,48 @@ it has **no password**.
 
 Layout and colors: `include/ui/radar_theme.h`.
 
+### Satellite background and rain radar
+
+Both are off by default and switched on under **Setup**.
+
+**Satellite background.** The background becomes a cloud-free Sentinel-2 image
+of exactly the visible area. The grid, crosshairs and range label are left out;
+aircraft triangles, speed vectors, rim dots, runway lines and the center dot get
+a dark outline, and every label sits on a semi-transparent dark backdrop so it
+stays readable on any terrain. Tag backdrops are all drawn before any tag text,
+so overlapping tags never dim each other.
+
+- Source: EOX **Sentinel-2 cloudless 2025** via WMS, requested in EPSG:4326 with
+  a bounding box of ±half-width/111 km in latitude and ±half-width/(111 km ·
+  cos lat) in longitude — the same flat projection the radar uses, so no tiles
+  are stitched and nothing is reprojected on the device.
+- One 240×240 JPEG (~15–20 KB) per range preset, downloaded the first time a
+  range is shown at a location and cached in LittleFS on the `spiffs`
+  partition. Changing the location refetches lazily.
+- The frame RAM has no room for a second 115 KB buffer, so the JPEG is decoded
+  into the frame sprite on every redraw (~110 ms) and dimmed in the same pass.
+
+**Rain radar overlay.** The newest RainViewer frame (updated every 10 minutes,
+checked every 5) is blended over the background, cyan for light rain through
+yellow to magenta for heavy rain; light rain stays almost transparent. Frames
+older than 40 minutes are hidden.
+
+- Source: RainViewer Weather Maps API, free tier — **zoom 7 at most**, which is
+  roughly 0.75 km per pixel in central Europe. That matches the native
+  resolution of the radar data, but the edges look soft or blocky at the
+  5 km preset.
+- One 256×256 PNG centered on the radar location covers every range preset, so
+  switching ranges only re-decodes the cached file.
+- Decoding needs a 32 KB inflate window that the heap cannot spare: the decoder
+  uses the ROM `tinfl` and borrows the frame sprite's buffer as scratch, then
+  stores a small 80×80 intensity grid as a file and streams it while drawing.
+  Nothing stays allocated, so HTTPS for ADS-B and weather keeps working.
+
+Attribution: *Sentinel-2 cloudless — https://s2maps.eu by EOX IT Services GmbH
+(Contains modified Copernicus Sentinel data 2025)*, CC BY-NC-SA 4.0. Rain radar
+by [RainViewer](https://www.rainviewer.com/), free for personal and educational
+use.
+
 ### Range presets
 
 | Ring 3 label | Outer radius (aircraft scale) |
@@ -135,6 +189,7 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 
 - Major airports from OurAirports (`large_airport`); all open runway strips in range (helipads excluded)
 - Teal runway lines with one ICAO label per airport (e.g. `KJFK`); toggle in the Wi‑Fi setup portal
+- The label sits just below the airport's runways (above them for airports north of the center), so it never covers the lines
 - Update the embedded list: `python3 scripts/build_large_airports.py`
 
 ### Aircraft
@@ -171,7 +226,7 @@ footer text defaults to 110% and can be adjusted from 80–130% in the same page
 - Hard caps: 64 aircraft per fetch, 32 airport labels per frame, 48 cached enrichment results
 - Wi‑Fi TX power is capped at 8.5 dBm in both AP and STA mode (`wifi_setup.cpp`) to keep weak USB supplies stable — raise it if range matters more than brown-out margin
 
-The device sends the configured coordinates to adsb.fi and Open-Meteo, and sends active callsign/Mode-S identifiers to ADSBDB. These calls use HTTPS but **do not verify the server certificate** (`setInsecure()`) — there is no room for a certificate bundle, so the traffic is encrypted but not authenticated.
+The device sends the configured coordinates to adsb.fi and Open-Meteo, and sends active callsign/Mode-S identifiers to ADSBDB. With the satellite background or rain overlay enabled, the coordinates also go to EOX (tiles.maps.eox.at) or RainViewer. These calls use HTTPS but **do not verify the server certificate** (`setInsecure()`) — there is no room for a certificate bundle, so the traffic is encrypted but not authenticated.
 
 While the **Setup** page is open, your browser — not the device — additionally loads Leaflet from cdnjs, map tiles from openstreetmap.org, and, if you use the search box, sends that query to Nominatim.
 
@@ -208,6 +263,7 @@ include/
     radar_theme.h
     radar_range.h
     radar_display.h
+    pixel_ops.h            — direct work on the frame sprite's RGB565 buffer
     runway_overlay.h
     status_screens.h
   services/
@@ -216,12 +272,15 @@ include/
     adsb_client.h
     diagnostics.h
     display_settings.h
+    file_cache.h           — LittleFS image cache, HTTPS download to file
     ota_update.h
+    rain_radar.h
+    satellite_map.h
     weather_time.h
 data/
   ui_font.vlw              — embedded smooth UI font (Noto Sans Bold)
 partitions/
-  plane_radar.csv          — dual-OTA 4 MB layout
+  plane_radar.csv          — dual-OTA 4 MB layout; the 384 KB `spiffs` partition holds the LittleFS image cache
 scripts/
   build_large_airports.py  — regenerates the embedded airport/runway tables
   merge_firmware.py        — post-build hook: `pio run -t merge`
@@ -244,7 +303,10 @@ src/
     adsb_client.cpp
     display_settings.cpp
     diagnostics.cpp
+    file_cache.cpp
     ota_update.cpp
+    rain_radar.cpp
+    satellite_map.cpp
     weather_time.cpp
 platformio.ini
 .github/workflows/
