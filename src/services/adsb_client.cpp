@@ -7,6 +7,7 @@
 
 #include <cctype>
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 
 #include "config.h"
@@ -77,6 +78,26 @@ bool readResponseBody(HTTPClient& http, String& payload) {
 }
 
 float kmToNauticalMiles(float km) { return km / kKmPerNm; }
+
+/**
+ * Next non-whitespace character of the stream without consuming it, waiting
+ * up to timeout_ms for data; -1 on timeout or a closed connection.
+ */
+int peekNonSpace(Stream& stream, unsigned long timeout_ms) {
+  const unsigned long started = millis();
+  while (millis() - started < timeout_ms) {
+    if (stream.available() > 0) {
+      const int c = stream.peek();
+      if (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+        stream.read();
+        continue;
+      }
+      return c;
+    }
+    delay(1);
+  }
+  return -1;
+}
 
 bool readJsonFloat(const JsonObject& obj, const char* key, float* out) {
   if (obj[key].is<float>() || obj[key].is<double>() || obj[key].is<int>()) {
@@ -542,58 +563,116 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     return fetchFailed(code);
   }
 
-  // Parse straight from the TLS stream and keep only the fields we use. Over a
-  // busy airport the full response (~1 KB per aircraft) held as a String plus
-  // its unfiltered document used up the heap and broke the next TLS handshake.
+  // Parse the "ac" array one aircraft at a time straight from the TLS stream,
+  // keeping only the fields we use. Memory stays constant however many
+  // aircraft the (wider, rim-dot) fetch radius returns; holding the whole
+  // response used up the heap over busy airports and broke the next TLS
+  // handshake.
+  Stream& stream = http.getStream();
+  if (!stream.find("\"ac\":[")) {
+    http.end();
+    Serial.println("adsb: no aircraft array in response");
+    return fetchFailed(0);
+  }
+
   JsonDocument filter;
-  JsonObject keep = filter["ac"].add<JsonObject>();
   for (const char* field :
        {"lat", "lon", "true_heading", "mag_heading", "track", "dir", "gs",
         "tas", "ias", "alt_baro", "alt_geom", "hex", "flight", "t"}) {
-    keep[field] = true;
+    filter[field] = true;
   }
-  JsonDocument doc;
-  const DeserializationError err = deserializeJson(
-      doc, http.getStream(), DeserializationOption::Filter(filter));
+  JsonDocument plane_doc;
+
+  // More aircraft than slots: keep the nearest, so nothing on screen is ever
+  // dropped in favour of a distant rim dot.
+  const float lon_scale = cosf(static_cast<float>(center_lat) * 0.0174532925f);
+  float dist_sq[kMaxAircraft];
+  size_t n = 0;
+  size_t total = 0;
+  bool ok = true;
+  for (;;) {
+    int c = peekNonSpace(stream, kAdsbRequestTimeoutMs);
+    if (c == ']') {
+      break;  // end of the aircraft array
+    }
+    if (c != '{') {
+      ok = false;
+      break;
+    }
+    const DeserializationError err = deserializeJson(
+        plane_doc, stream, DeserializationOption::Filter(filter));
+    if (err) {
+      Serial.printf("adsb: JSON parse error: %s\n", err.c_str());
+      ok = false;
+      break;
+    }
+    ++total;
+    if ((total & 7) == 0) {
+      pollNetwork();
+    }
+
+    JsonObject plane = plane_doc.as<JsonObject>();
+    if (plane["lat"].is<float>() && plane["lon"].is<float>() &&
+        !(isOnGround(plane) && !config::kAdsbShowGroundAircraft)) {
+      const float lat = plane["lat"].as<float>();
+      const float lon = plane["lon"].as<float>();
+      const float dy = lat - static_cast<float>(center_lat);
+      const float dx = (lon - static_cast<float>(center_lon)) * lon_scale;
+      const float d2 = dx * dx + dy * dy;
+
+      size_t slot = n;
+      if (n == kMaxAircraft) {
+        slot = 0;
+        for (size_t i = 1; i < kMaxAircraft; ++i) {
+          if (dist_sq[i] > dist_sq[slot]) {
+            slot = i;
+          }
+        }
+        if (d2 >= dist_sq[slot]) {
+          slot = kMaxAircraft;  // farther than everything kept: skip it
+        }
+      } else {
+        ++n;
+      }
+      if (slot < kMaxAircraft) {
+        Aircraft& ac = s_aircraft[slot];
+        ac.lat = lat;
+        ac.lon = lon;
+        ac.nose_deg = pickNoseHeading(plane);
+        ac.track_deg = pickTrackHeading(plane);
+        ac.gs_knots = pickGroundSpeed(plane);
+        fillTagFields(&ac, plane);
+        applyCachedEnrichment(&ac);
+        dist_sq[slot] = d2;
+      }
+    }
+
+    c = peekNonSpace(stream, kAdsbRequestTimeoutMs);
+    if (c == ',') {
+      stream.read();
+      continue;
+    }
+    if (c != ']') {
+      ok = false;
+    }
+    break;
+  }
   http.end();
-  if (err) {
-    Serial.printf("adsb: JSON parse error: %s\n", err.c_str());
+
+  // Even a cut-off response leaves a consistent (if shorter) list.
+  s_aircraft_count = n;
+  if (!ok) {
+    Serial.printf("adsb: response cut off after %u aircraft\n",
+                  static_cast<unsigned>(total));
     return fetchFailed(0);
   }
 
   ++s_stats.fetch_ok;
   s_stats.last_ok_ms = millis();
-
-  JsonArray ac = doc["ac"].as<JsonArray>();
-  if (ac.isNull()) {
-    s_aircraft_count = 0;
-    return true;
-  }
-
-  size_t n = 0;
-  for (JsonObject plane : ac) {
-    if (n >= kMaxAircraft) {
-      break;
-    }
-    if (!plane["lat"].is<float>() || !plane["lon"].is<float>()) {
-      continue;
-    }
-    if (isOnGround(plane) && !config::kAdsbShowGroundAircraft) {
-      continue;
-    }
-
-    s_aircraft[n].lat = plane["lat"].as<float>();
-    s_aircraft[n].lon = plane["lon"].as<float>();
-    s_aircraft[n].nose_deg = pickNoseHeading(plane);
-    s_aircraft[n].track_deg = pickTrackHeading(plane);
-    s_aircraft[n].gs_knots = pickGroundSpeed(plane);
-    fillTagFields(&s_aircraft[n], plane);
-    applyCachedEnrichment(&s_aircraft[n]);
-    ++n;
-  }
-
-  s_aircraft_count = n;
-  Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(n));
+  s_stats.last_total = total;
+  Serial.printf("adsb: %u aircraft (%u in fetch radius), heap low %u B\n",
+                static_cast<unsigned>(n), static_cast<unsigned>(total),
+                static_cast<unsigned>(ESP.getMinFreeHeap()));
   return true;
 }
 

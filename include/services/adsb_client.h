@@ -16,6 +16,8 @@ struct Stats {
   uint32_t enrich_failed = 0;
   /** Enrichment cache entries currently holding data. */
   size_t cache_used = 0;
+  /** Aircraft in the last response, before the nearest-64 cut. */
+  size_t last_total = 0;
 };
 
 const Stats& stats();

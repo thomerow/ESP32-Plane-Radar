@@ -195,7 +195,7 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 ### Aircraft
 
 - **Up to 110 px from the center** (just inside the panel edge, past the outer ring) — red heading triangle, magenta speed vector (clipped at the panel edge), route / detailed type / altitude tags
-- **Beyond that** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate)
+- **Beyond that**, up to 1.5× the view radius — small **red dot on the screen rim** at the correct bearing, announcing traffic before it enters the view (direction cue; not distance-accurate)
 - **Tags** — placed to avoid each other: by default toward the **center** (west → tag on the **right** of the symbol, east → on the **left**). If that spot is taken by another tag, a symbol, a N/S/E/W letter or the footer, the tag moves up or down, above or below the symbol, to the other side, or further out in dense clusters; a thin grey leader line then links it to its aircraft. Aircraft nearest the center choose first and are drawn on top. Near the edge no corner falls off the round panel
 - **Route fallback** — the callsign is shown until route data arrives, and remains the fallback when no route is known
 - **Detailed type** — aircraft data is compacted for the display (for example `Boeing 737-800` → `B737-800`)
@@ -220,10 +220,11 @@ footer text defaults to 110% and can be adjusted from 80–130% in the same page
 
 - Source: `https://opendata.adsb.fi/api/v3/`
 - Route and aircraft enrichment: `https://api.adsbdb.com/v0/`
-- Fetch radius: `ui::radar::fetchRadiusKm()` — scales with the active preset to roughly the screen edge (so rim dots have data)
+- Fetch radius: `ui::radar::fetchRadiusKm()` — 1.5× the view radius (`kRimDotReachFactor` in `config.h`), so rim dots announce aircraft up to half a screen width before they enter the view
 - Poll interval: `kAdsbFetchIntervalMs` (3 s) in `config.h`
+- The response is parsed one aircraft at a time straight from the TLS stream, keeping only the fields the display uses, so memory use does not grow with traffic
 - Ground aircraft hidden by default (`kAdsbShowGroundAircraft`)
-- Hard caps: 64 aircraft per fetch, 32 airport labels per frame, 48 cached enrichment results
+- Hard caps: 64 aircraft per fetch (the nearest are kept), 32 airport labels per frame, 48 cached enrichment results
 - Wi‑Fi TX power is capped at 8.5 dBm in both AP and STA mode (`wifi_setup.cpp`) to keep weak USB supplies stable — raise it if range matters more than brown-out margin
 
 The device sends the configured coordinates to adsb.fi and Open-Meteo, and sends active callsign/Mode-S identifiers to ADSBDB. With the satellite background or rain overlay enabled, the coordinates also go to EOX (tiles.maps.eox.at) or RainViewer. These calls use HTTPS but **do not verify the server certificate** (`setInsecure()`) — there is no room for a certificate bundle, so the traffic is encrypted but not authenticated.

@@ -226,7 +226,10 @@ void writeRadar(Print& out) {
        services::location::lon());
   rowf(out, "Range preset", "ring 3 at %.0f km, outer radius %.2f km",
        preset.ring3_km, preset.outer_km);
-  rowf(out, "ADS-B fetch radius", "%.2f km", ui::radar::fetchRadiusKm());
+  rowf(out, "View radius", "%.2f km (center to panel edge)",
+       ui::radar::viewRadiusKm());
+  rowf(out, "ADS-B fetch radius", "%.2f km (rim dots beyond the view)",
+       ui::radar::fetchRadiusKm());
   rowf(out, "Units", "%s", ui::radar::useMiles() ? "miles" : "kilometres");
   rowf(out, "Runway overlay", "%s", ui::radar::showRunways() ? "on" : "off");
   rowf(out, "Text scale", "%d %%", services::settings::textScalePercent());
@@ -277,6 +280,9 @@ void writeAdsb(Print& out) {
     rowf(out, "Last success", "%lu s ago",
          (millis() - st.last_ok_ms) / 1000UL);
   }
+  rowf(out, "Last response", "%u aircraft in fetch radius (max %u kept)",
+       static_cast<unsigned>(st.last_total),
+       static_cast<unsigned>(services::adsb::kMaxAircraft));
   rowf(out, "Enrichment", "%lu ok, %lu failed",
        static_cast<unsigned long>(st.enrich_ok),
        static_cast<unsigned long>(st.enrich_failed));

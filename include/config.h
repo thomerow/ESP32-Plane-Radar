@@ -52,6 +52,12 @@ constexpr double kDefaultRadarLon = 4.9041;
 constexpr char kAdsbApiBase[] = "https://opendata.adsb.fi/api/v3/lat/";
 /** Poll adsb.fi (API public limit: 1 req/s). */
 constexpr unsigned long kAdsbFetchIntervalMs = 3000;
+/**
+ * ADS-B is fetched out to this multiple of the screen-edge radius. Aircraft
+ * between the panel edge and this radius show up as rim dots, announcing
+ * traffic before it enters the view (1.5 = half a screen width of warning).
+ */
+constexpr float kRimDotReachFactor = 1.5f;
 /** false = hide aircraft with alt_baro "ground"; true = show them too. */
 constexpr bool kAdsbShowGroundAircraft = false;
 

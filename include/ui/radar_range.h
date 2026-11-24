@@ -39,7 +39,12 @@ void rangeInit();
 /** Cycle preset and save to flash. */
 void rangeNext();
 const RangePreset& rangeCurrent();
-/** ADSB fetch radius (km): scaled to screen edge so beyond-ring dots have data. */
+/** Radius (km) of the visible view: center to the panel edge. */
+float viewRadiusKm();
+/**
+ * ADS-B fetch radius (km): the view radius times config::kRimDotReachFactor,
+ * so rim dots can announce aircraft before they enter the screen.
+ */
 float fetchRadiusKm();
 
 bool useMiles();

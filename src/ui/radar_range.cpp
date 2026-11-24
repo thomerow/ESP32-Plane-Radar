@@ -1,5 +1,6 @@
 #include "ui/radar_range.h"
 
+#include "config.h"
 #include "ui/radar_theme.h"
 
 #include <Preferences.h>
@@ -81,12 +82,14 @@ void rangeNext() {
 const RangePreset& rangeCurrent() { return kRangePresets[s_range_index]; }
 
 
-float fetchRadiusKm() {
+float viewRadiusKm() {
   const float outer_km = rangeCurrent().outer_km;
   const float screen_r_px =
       static_cast<float>(kCenterX - kBeyondRingScreenMarginPx);
   return outer_km * (screen_r_px / static_cast<float>(kGridOuterRadius));
 }
+
+float fetchRadiusKm() { return viewRadiusKm() * config::kRimDotReachFactor; }
 
 bool useMiles() { return s_use_miles; }
 

@@ -333,7 +333,7 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx, BackdropFn backdrop) {
     return;
   }
   displayFontEnsureLoaded(gfx);
-  const float radius_km = radar::fetchRadiusKm();
+  const float radius_km = radar::viewRadiusKm();
 
   uint16_t label_airports[kMaxAirportLabels];
   size_t label_count = 0;
@@ -380,7 +380,7 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx, BackdropFn backdrop) {
 
 void runwayDiagnostics(Print& out) {
   char buf[224];
-  const float radius_km = radar::fetchRadiusKm();
+  const float radius_km = radar::viewRadiusKm();
 
   if (!radar::showRunways()) {
     out.print(F("<h2>Airports</h2><p><small>Runway overlay is switched off in "
