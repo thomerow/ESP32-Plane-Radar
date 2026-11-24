@@ -213,30 +213,25 @@ void initFooterMetrics() {
 }
 
 void initPalette() {
-  radar::kColorBackground = tft.color565(radar::kBgR, radar::kBgG, radar::kBgB);
-  radar::kColorGrid = tft.color565(radar::kGridR, radar::kGridG, radar::kGridB);
-  radar::kColorLabel = tft.color565(255, 255, 255);
-  radar::kColorCenter = tft.color565(255, 255, 255);
-  // GC9A01 BGR panel: swap R/B in color565 so logical red renders red on screen.
-  if (config::kDisplayRgbOrder) {
-    radar::kColorAircraft =
-        tft.color565(radar::kAircraftB, radar::kAircraftG, radar::kAircraftR);
-  } else {
-    radar::kColorAircraft =
-        tft.color565(radar::kAircraftR, radar::kAircraftG, radar::kAircraftB);
-  }
+  using config::panelColor;
+  radar::kColorBackground = panelColor(radar::kBgR, radar::kBgG, radar::kBgB);
+  radar::kColorGrid = panelColor(radar::kGridR, radar::kGridG, radar::kGridB);
+  radar::kColorLabel = panelColor(255, 255, 255);
+  radar::kColorCenter = panelColor(255, 255, 255);
+  radar::kColorAircraft =
+      panelColor(radar::kAircraftR, radar::kAircraftG, radar::kAircraftB);
   radar::kColorTrackVector =
-      tft.color565(radar::kTrackR, radar::kTrackG, radar::kTrackB);
+      panelColor(radar::kTrackR, radar::kTrackG, radar::kTrackB);
   radar::kColorTagType =
-      tft.color565(radar::kTagTypeR, radar::kTagTypeG, radar::kTagTypeB);
+      panelColor(radar::kTagTypeR, radar::kTagTypeG, radar::kTagTypeB);
   radar::kColorTagAltitude =
-      tft.color565(radar::kTagAltR, radar::kTagAltG, radar::kTagAltB);
+      panelColor(radar::kTagAltR, radar::kTagAltG, radar::kTagAltB);
   radar::kColorRunway =
-      tft.color565(radar::kRunwayR, radar::kRunwayG, radar::kRunwayB);
-  radar::kColorRunwayLabel = tft.color565(radar::kRunwayLabelR, radar::kRunwayLabelG,
-                                          radar::kRunwayLabelB);
+      panelColor(radar::kRunwayR, radar::kRunwayG, radar::kRunwayB);
+  radar::kColorRunwayLabel = panelColor(
+      radar::kRunwayLabelR, radar::kRunwayLabelG, radar::kRunwayLabelB);
   radar::kColorFooterBackground =
-      tft.color565(radar::kFooterBgR, radar::kFooterBgG, radar::kFooterBgB);
+      panelColor(radar::kFooterBgR, radar::kFooterBgG, radar::kFooterBgB);
 }
 
 constexpr float kKmPerDeg = 111.0f;

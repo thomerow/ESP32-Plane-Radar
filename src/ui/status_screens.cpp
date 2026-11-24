@@ -171,7 +171,7 @@ void drawSpinnerDots() {
     const int y = kCenterY + static_cast<int>(std::lround(std::sin(a) * kSpinnerRadius));
 
     const int fade = 255 - i * 22;
-    const uint16_t color = tft.color565(0, fade, 0);
+    const uint16_t color = config::panelColor(0, fade, 0);
     tft.fillSmoothCircle(x, y, kSpinnerDotRadius, color);
 
     s_spinner_dots[i].x = x;
@@ -217,7 +217,7 @@ void statusScreenPortal() {
       {config::kPortalHostUrl, 1.12f, &kPortalGfxEmphasis},
       {"or 192.168.4.1", 1.0f, &kPortalGfxBody},
   };
-  drawTextBlock(config::kColorYellow, config::kTextOnYellow, lines,
+  drawTextBlock(config::kColorSetupBackground, config::kColorSetupText, lines,
                 sizeof(lines) / sizeof(lines[0]));
 }
 
@@ -229,7 +229,7 @@ void statusScreenConnectFailed() {
       {"Hold BOOT 3 sec", 1.0f, &kGfxBody},
       {"to reset Wi-Fi", 1.0f, &kGfxBody},
   };
-  drawTextBlock(config::kColorYellow, config::kTextOnYellow, lines,
+  drawTextBlock(config::kColorSetupBackground, config::kColorSetupText, lines,
                 sizeof(lines) / sizeof(lines[0]));
 }
 
@@ -238,7 +238,7 @@ void statusScreenWifiReset() {
       {"Wi-Fi reset", 1.15f, &kPortalGfxTitle},
       {"Restarting...", 1.05f, &kPortalGfxBody},
   };
-  drawTextBlock(config::kColorYellow, config::kTextOnYellow, lines,
+  drawTextBlock(config::kColorSetupBackground, config::kColorSetupText, lines,
                 sizeof(lines) / sizeof(lines[0]));
 }
 
@@ -248,6 +248,6 @@ void statusScreenFirmwareUpdate() {
       {"Keep power connected", 1.0f, &kPortalGfxBody},
       {"Restarting when done", 1.0f, &kPortalGfxBody},
   };
-  drawTextBlock(config::kColorYellow, config::kTextOnYellow, lines,
+  drawTextBlock(config::kColorSetupBackground, config::kColorSetupText, lines,
                 sizeof(lines) / sizeof(lines[0]));
 }

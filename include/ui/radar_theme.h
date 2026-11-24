@@ -75,35 +75,38 @@ constexpr int kFooterTimeY = 216;
 constexpr int kFooterTimeOnlyY = 205;
 constexpr int kFooterLabelHeightPx = 13;
 
-/** RGB565 palette targets (applied in initPalette). */
-constexpr uint8_t kBgR = 4;
+/**
+ * Palette, as the colors APPEAR on the panel (initPalette() converts them with
+ * config::panelColor(), which handles panels that swap red and blue).
+ */
+constexpr uint8_t kBgR = 28;  // near-black, warm
 constexpr uint8_t kBgG = 10;
-constexpr uint8_t kBgB = 28;
-constexpr uint8_t kGridR = 16;
+constexpr uint8_t kBgB = 4;
+constexpr uint8_t kGridR = 32;  // green rings and crosshairs
 constexpr uint8_t kGridG = 100;
-constexpr uint8_t kGridB = 32;
-constexpr uint8_t kAircraftR = 255;
+constexpr uint8_t kGridB = 16;
+constexpr uint8_t kAircraftR = 255;  // red
 constexpr uint8_t kAircraftG = 0;
 constexpr uint8_t kAircraftB = 0;
-constexpr uint8_t kTrackR = 255;
+constexpr uint8_t kTrackR = 255;  // magenta speed vector
 constexpr uint8_t kTrackG = 0;
 constexpr uint8_t kTrackB = 255;
-constexpr uint8_t kTagTypeR = 255;
+constexpr uint8_t kTagTypeR = 0;  // light blue aircraft type
 constexpr uint8_t kTagTypeG = 200;
-constexpr uint8_t kTagTypeB = 0;
-constexpr uint8_t kTagAltR = 90;
+constexpr uint8_t kTagTypeB = 255;
+constexpr uint8_t kTagAltR = 255;  // orange altitude
 constexpr uint8_t kTagAltG = 200;
-constexpr uint8_t kTagAltB = 255;
-constexpr uint8_t kRunwayR = 56;
+constexpr uint8_t kTagAltB = 90;
+constexpr uint8_t kRunwayR = 170;  // gold runway lines
 constexpr uint8_t kRunwayG = 150;
-constexpr uint8_t kRunwayB = 170;
-/** Lighter teal for ICAO labels (vs runway lines). */
-constexpr uint8_t kRunwayLabelR = 110;
+constexpr uint8_t kRunwayB = 56;
+/** Lighter gold for ICAO labels (vs runway lines). */
+constexpr uint8_t kRunwayLabelR = 230;
 constexpr uint8_t kRunwayLabelG = 210;
-constexpr uint8_t kRunwayLabelB = 230;
-constexpr uint8_t kFooterBgR = 3;
+constexpr uint8_t kRunwayLabelB = 110;
+constexpr uint8_t kFooterBgR = 32;  // dark brown footer
 constexpr uint8_t kFooterBgG = 16;
-constexpr uint8_t kFooterBgB = 32;
+constexpr uint8_t kFooterBgB = 3;
 
 extern uint16_t kColorBackground;
 extern uint16_t kColorGrid;

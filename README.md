@@ -59,7 +59,7 @@ Linux recognise the ESP32‑C3's built-in USB port without a driver.
    disappears).
 3. Under **Program**, set the address to **`0x0`**, choose the **`-full.bin`**
    file, and click **Program**.
-4. When it is done, unplug and replug the board. It starts with the yellow
+4. When it is done, unplug and replug the board. It starts with the cyan
    setup screen; continue with [Wi‑Fi setup portal](#wifi-setup-portal).
 
 The full image contains bootloader, partition table and application, and it
@@ -117,7 +117,7 @@ The 3 s hold works at any time the firmware is running, including on the **Conne
 **First-time setup** (no saved Wi‑Fi):
 
 1. Connect to **`PlaneRadar-Setup`**
-2. Open **`http://plane-radar.local`** (preferred) or **`http://192.168.4.1`** — both are shown on the yellow setup screen; captive portal may open automatically
+2. Open **`http://plane-radar.local`** (preferred) or **`http://192.168.4.1`** — both are shown on the cyan setup screen; captive portal may open automatically
 3. Set home Wi‑Fi, then save
 
 **Reconfigure anytime** (after the device is on your network):
@@ -229,13 +229,16 @@ it has **no password**.
 
 ### Grid
 
-- Dark background, green rings and crosshairs
+- Near-black background, green rings and crosshairs
+- Tags: route in white, aircraft type in light blue, altitude in orange; runway lines in gold
+- Footer (when enabled): dark brown, weather in light blue, time in orange
 - White **N / S / E / W** at the bezel; range label on the **east** spoke, drawn just inside the outer ring (the value is the ring‑3 distance = ¾ of outer radius)
 - White center dot
 
-Layout and colors: `include/ui/radar_theme.h`. GC9A01 modules differ in their
-red/blue order, so some theme colors can look different from their names; see
-**Display colors** under [Configuration](#configuration).
+Layout and colors: `include/ui/radar_theme.h`. All colors are defined as they
+appear on the panel. GC9A01 modules differ in their red/blue order; if yours
+shows red aircraft in blue, see **Display colors** under
+[Configuration](#configuration).
 
 ### Satellite background and rain radar
 
@@ -347,7 +350,7 @@ Edit **`include/config.h`** for hardware and behavior (then rebuild, see [path C
 | Wi‑Fi timing | connect attempts, reconnect grace, portal timeout (`0` = no timeout) |
 | BOOT | `kBootPin`, `kBootResetHoldMs`, `kBootTapMinMs` |
 | Display SPI | pins, `kDisplayInvert`, `kDisplaySpiWriteHz` |
-| Display colors | `kDisplayRgbOrder` sets the panel's red/blue order; `kDisplaySwapRedBlue` follows it and pre-swaps the aircraft red, the satellite image and the rain colors. If aircraft show up blue or water looks orange in satellite mode, flip `kDisplayRgbOrder`. The other theme colors in `radar_theme.h` are not pre-swapped, so on panels that swap red and blue (like the reference unit) the "dark blue" background looks near-black and the teal runway lines gold |
+| Display colors | Colors in `radar_theme.h` and `config.h` are written as they should appear. `kDisplaySwapRedBlue` says whether the panel shows red and blue swapped relative to what the firmware sends; `config::panelColor()`, the satellite image and the rain overlay compensate for it. `true` matches the reference module. If red aircraft show up blue (or water looks orange in satellite mode), set it to `false`. Leave `kDisplayRgbOrder` as is |
 | Default location | `kDefaultRadarLat`, `kDefaultRadarLon` (until portal overrides) |
 | ADS-B | `kAdsbApiBase`, `kAdsbFetchIntervalMs`, `kAdsbShowGroundAircraft`, `kRimDotReachFactor` |
 | Flight enrichment | lookup interval, timeout, and cache durations |

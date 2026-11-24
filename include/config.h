@@ -95,21 +95,37 @@ constexpr unsigned long kRainRequestTimeoutMs = 10000UL;
 constexpr long kRainMaxAgeSec = 40L * 60L;
 
 /**
- * This panel shows red and blue swapped with the current rgb_order setting —
- * the aircraft color in initPalette() already compensates. Images and new
- * overlay colors use this flag to do the same.
+ * Whether the panel shows red and blue swapped relative to the RGB565 words the
+ * firmware sends. Every color in the firmware is defined as it should APPEAR;
+ * panelColor(), the satellite image and the rain overlay pre-swap when this is
+ * set. true matches the reference module (with kDisplayRgbOrder = true).
+ *
+ * If red aircraft show up blue on your module (or water looks orange in the
+ * satellite view), set this to false. Do not flip kDisplayRgbOrder for that:
+ * it was tied to this flag before, so changing it alone changed nothing.
  */
-constexpr bool kDisplaySwapRedBlue = kDisplayRgbOrder;
+constexpr bool kDisplaySwapRedBlue = true;
+
+/** Plain RGB565 packing (same as LovyanGFX color565). */
+constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+
+/** RGB565 word that makes the panel show (r, g, b). */
+constexpr uint16_t panelColor(uint8_t r, uint8_t g, uint8_t b) {
+  return kDisplaySwapRedBlue ? rgb565(b, g, r) : rgb565(r, g, b);
+}
 
 // --- User-facing defaults ---
 constexpr char kOtaUsername[] = "admin";
 /** Change this in the web settings before exposing the device to other users. */
 constexpr char kDefaultOtaPassword[] = "plane-radar";
 
-// --- UI colors (RGB565) — status screens ---
-constexpr uint16_t kColorBlack = 0x0000;
-constexpr uint16_t kColorYellow = 0xFFE0;
-constexpr uint16_t kTextOnYellow = kColorBlack;
-constexpr uint16_t kTextOnBlack = 0xFFFF;
+// --- UI colors — status screens (as they appear on the panel) ---
+constexpr uint16_t kColorBlack = panelColor(0, 0, 0);
+/** Setup / connect-failed / reset screens. */
+constexpr uint16_t kColorSetupBackground = panelColor(0, 255, 255);  // cyan
+constexpr uint16_t kColorSetupText = panelColor(0, 0, 0);
+constexpr uint16_t kTextOnBlack = panelColor(255, 255, 255);
 
 }  // namespace config
