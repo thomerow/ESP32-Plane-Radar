@@ -43,7 +43,8 @@ image). Otherwise use path C.
 4. Upload the **`-ota.bin`** file — never the `-full.bin`
 5. Keep the power connected; the device writes the update and restarts
 6. To check: **Setup → Info** (or `/debug`) shows the running firmware
-   version, e.g. *Plane Radar 2.1.0* (v2.0.0 does not show one yet)
+   version next to *Plane Radar*; it should match the release you uploaded.
+   Releases after v2.0.0 show it; v2.0.0 itself shows only the sketch MD5
 
 ### B. Flash over USB (full image)
 
