@@ -140,8 +140,8 @@ Both are off by default and switched on under **Setup**.
 of exactly the visible area. The grid, crosshairs and range label are left out;
 aircraft triangles, speed vectors, rim dots, runway lines and the center dot get
 a dark outline, and every label sits on a semi-transparent dark backdrop so it
-stays readable on any terrain. Tag backdrops are all drawn before any tag text,
-so overlapping tags never dim each other.
+stays readable on any terrain. Each tag is drawn as a unit (backdrop, then
+text), so where tags still overlap the later one covers the earlier cleanly.
 
 - Source: EOX **Sentinel-2 cloudless 2025** via WMS, requested in EPSG:4326 with
   a bounding box of ±half-width/111 km in latitude and ±half-width/(111 km ·
@@ -196,7 +196,7 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 
 - **Up to 110 px from the center** (just inside the panel edge, past the outer ring) — red heading triangle, magenta speed vector (clipped at the panel edge), route / detailed type / altitude tags
 - **Beyond that** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate)
-- **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**; near the edge the block is nudged inward so no corner falls off the round panel
+- **Tags** — placed to avoid each other: by default toward the **center** (west → tag on the **right** of the symbol, east → on the **left**). If that spot is taken by another tag, a symbol, a N/S/E/W letter or the footer, the tag moves up or down, above or below the symbol, to the other side, or further out in dense clusters; a thin grey leader line then links it to its aircraft. Aircraft nearest the center choose first and are drawn on top. Near the edge no corner falls off the round panel
 - **Route fallback** — the callsign is shown until route data arrives, and remains the fallback when no route is known
 - **Detailed type** — aircraft data is compacted for the display (for example `Boeing 737-800` → `B737-800`)
 

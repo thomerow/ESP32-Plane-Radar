@@ -3,6 +3,7 @@
 #include <lgfx/v1/lgfx_fonts.hpp>
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -67,6 +68,8 @@ bool s_sat_frame = false;
 /** Backdrops behind labels keep this share of the image brightness (~30 %). */
 constexpr uint16_t kBackdropScale = 77;
 constexpr uint16_t kOutlineColor = 0x0000;
+/** Mid grey (identical with or without the panel's red/blue swap). */
+constexpr uint16_t kColorTagLeader = 0x9CF3;
 
 /** Satellite frames draw text transparently so the image shows around glyphs. */
 void setLabelColor(uint16_t fg) {
@@ -476,53 +479,204 @@ struct TagLayout {
   bool on_right = true;
 };
 
-TagLayout layoutAircraftTag(int x, int y,
-                            const services::adsb::Aircraft& plane) {
+/** Block size of one aircraft's three-line tag in the current tag style. */
+TagLayout measureAircraftTag(const services::adsb::Aircraft& plane) {
   initTagLabelMetrics();
   applyTagStyle();
-
   TagLayout layout;
   layout.line_h = s_draw->fontHeight();
   layout.block_w = measureTagBlockWidth(plane);
   layout.block_h = layout.line_h * 3;
+  return layout;
+}
 
-  const int symbol_half =
-      radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx;
-  // West (left): tag toward center on the right; east (right): tag on the left.
-  layout.on_right = x < radar::kCenterX;
-  if (layout.on_right) {
-    layout.anchor_x = x + symbol_half + radar::kAircraftLabelGapPx;
-    layout.anchor_x =
-        std::min(layout.anchor_x, radar::kSize - layout.block_w - 1);
-  } else {
-    layout.anchor_x = x - symbol_half - radar::kAircraftLabelGapPx;
-    layout.anchor_x = std::max(layout.anchor_x, layout.block_w + 1);
+/** Compact screen rectangle (half-open) for tag placement; lives on the stack. */
+struct Box {
+  int16_t x0;
+  int16_t y0;
+  int16_t x1;
+  int16_t y1;
+};
+
+Box makeBox(int x0, int y0, int x1, int y1) {
+  return Box{static_cast<int16_t>(x0), static_cast<int16_t>(y0),
+             static_cast<int16_t>(x1), static_cast<int16_t>(y1)};
+}
+
+int overlapArea(const Box& a, const Box& b) {
+  const int w = std::min(a.x1, b.x1) - std::max(a.x0, b.x0);
+  const int h = std::min(a.y1, b.y1) - std::max(a.y0, b.y0);
+  return (w > 0 && h > 0) ? w * h : 0;
+}
+
+/** The area a tag occupies, including its backdrop padding. */
+Box tagBox(const TagLayout& layout) {
+  const int left =
+      layout.on_right ? layout.anchor_x : layout.anchor_x - layout.block_w;
+  return makeBox(left - 2, layout.top_y - 1, left + layout.block_w + 2,
+                 layout.top_y + layout.block_h + 1);
+}
+
+/** Box around an aircraft symbol (nose length plus outline on every side). */
+Box symbolBox(int x, int y) {
+  constexpr int kHalf = radar::kAircraftNoseLenPx + 2;
+  return makeBox(x - kHalf, y - kHalf, x + kHalf + 1, y + kHalf + 1);
+}
+
+/** How far (px, summed over corners) a box reaches past the round panel. */
+int offPanelPx(const Box& b) {
+  const float max_r = static_cast<float>(radar::kScreenRadiusPx - 1);
+  const int xs[2] = {b.x0, b.x1};
+  const int ys[2] = {b.y0, b.y1};
+  int over = 0;
+  for (int xi = 0; xi < 2; ++xi) {
+    for (int yi = 0; yi < 2; ++yi) {
+      const float d = sqrtf(static_cast<float>(distSqFromCenter(xs[xi], ys[yi])));
+      if (d > max_r) {
+        over += static_cast<int>(d - max_r + 0.5f);
+      }
+    }
   }
-  layout.top_y = std::max(
-      1, std::min(y - layout.block_h / 2, radar::kSize - layout.block_h - 1));
+  return over;
+}
 
-  // Near the edge the square block would reach into the panel's round corners:
-  // nudge it toward the center until all four corners are on the panel.
+/**
+ * Tag block with its top-left corner at (left, top), clamped to the screen.
+ * text_left_aligned: text hugs the left edge (tag right of / above / below the
+ * symbol) or the right edge (tag left of the symbol).
+ */
+TagLayout tagAt(TagLayout layout, int left, int top, bool text_left_aligned) {
+  left = std::max(1, std::min(left, radar::kSize - layout.block_w - 1));
+  top = std::max(1, std::min(top, radar::kSize - layout.block_h - 1));
+  layout.on_right = text_left_aligned;
+  layout.anchor_x = text_left_aligned ? left : left + layout.block_w;
+  layout.top_y = top;
+  return layout;
+}
+
+/**
+ * Pick the tag position for the aircraft at (x, y) that collides least with
+ * the obstacles (symbols, tags placed so far, fixed labels). Candidates, in
+ * order of preference: beside the symbol (toward the center first) shifted in
+ * half-line steps, above or below it, then beside it with a wider gap. The
+ * default (toward the center, vertically centered) wins whenever it is free.
+ */
+TagLayout placeAircraftTag(int x, int y, const services::adsb::Aircraft& plane,
+                           const Box* obstacles, size_t obstacle_count) {
+  const TagLayout m = measureAircraftTag(plane);
+  const bool preferred_right = x < radar::kCenterX;
+  const int gap = radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx +
+                  radar::kAircraftLabelGapPx;
+  constexpr int kSymbolHalf = radar::kAircraftNoseLenPx + 2;
+  constexpr int kOverlapWeight = 8;
+  constexpr int kOffPanelWeight = 400;
+
+  TagLayout best = tagAt(m, preferred_right ? x + gap : x - gap - m.block_w,
+                         y - m.block_h / 2, preferred_right);
+  int best_cost = INT32_MAX;
+  auto consider = [&](int left, int top, bool text_left_aligned, int penalty) {
+    if (penalty >= best_cost) {
+      return;
+    }
+    const TagLayout cand = tagAt(m, left, top, text_left_aligned);
+    const Box box = tagBox(cand);
+    int cost = penalty + offPanelPx(box) * kOffPanelWeight;
+    for (size_t i = 0; i < obstacle_count && cost < best_cost; ++i) {
+      cost += overlapArea(box, obstacles[i]) * kOverlapWeight;
+    }
+    if (cost < best_cost) {
+      best_cost = cost;
+      best = cand;
+    }
+  };
+
+  // 1. Beside the symbol, shifted up/down in half-line steps.
+  static constexpr int8_t kSteps[] = {0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6};
+  for (int side = 0; side < 2; ++side) {
+    const bool right = side == 0 ? preferred_right : !preferred_right;
+    const int left = right ? x + gap : x - gap - m.block_w;
+    for (const int8_t step : kSteps) {
+      consider(left, y - m.block_h / 2 + step * m.line_h / 2, right,
+               abs(step) + side * 5);
+    }
+  }
+  // 2. Above or below the symbol, slid sideways in quarter-width steps.
+  static constexpr int8_t kSlides[] = {0, -1, 1, -2, 2};
+  for (int below = 0; below < 2; ++below) {
+    const int top = below ? y + kSymbolHalf + 2 : y - kSymbolHalf - 2 - m.block_h;
+    for (const int8_t slide : kSlides) {
+      consider(x - m.block_w / 2 + slide * m.block_w / 4, top, true,
+               4 + abs(slide) + below);
+    }
+  }
+  // 3. Beside the symbol with a wider gap (leader line makes the link clear).
+  static constexpr int8_t kFarSteps[] = {0, -2, 2, -4, 4};
+  for (int side = 0; side < 2; ++side) {
+    const bool right = side == 0 ? preferred_right : !preferred_right;
+    const int far_gap = gap + 14;
+    const int left = right ? x + far_gap : x - far_gap - m.block_w;
+    for (const int8_t step : kFarSteps) {
+      consider(left, y - m.block_h / 2 + step * m.line_h / 2, right,
+               9 + abs(step) + side * 3);
+    }
+  }
+  // 4. Dense clusters: centered further out in eight directions, so a tag can
+  //    reach free space beyond its neighbours (the leader line shows the link).
+  static constexpr int8_t kDirX[] = {1, -1, 0, 0, 1, 1, -1, -1};
+  static constexpr int8_t kDirY[] = {0, 0, -1, 1, -1, 1, -1, 1};
+  static constexpr int8_t kRadii[] = {28, 42, 56};
+  for (const int8_t r : kRadii) {
+    for (size_t dir = 0; dir < sizeof(kDirX); ++dir) {
+      const int len = (kDirX[dir] != 0 && kDirY[dir] != 0) ? r * 7 / 10 : r;
+      const int cx = x + kDirX[dir] * (len + m.block_w / 2);
+      const int cy = y + kDirY[dir] * (len + m.block_h / 2);
+      consider(cx - m.block_w / 2, cy - m.block_h / 2, kDirX[dir] >= 0,
+               14 + r / 7);
+    }
+  }
+
+  // Edge case: every candidate reaches off the panel (aircraft right at the
+  // rim). Nudge the winner toward the center until its corners fit.
   const int max_r = radar::kScreenRadiusPx - 1;
   const int max_r_sq = max_r * max_r;
   for (int step = 0; step < 80; ++step) {
-    const int left =
-        layout.on_right ? layout.anchor_x : layout.anchor_x - layout.block_w;
-    const int right = left + layout.block_w;
-    const int top = layout.top_y;
-    const int bottom = top + layout.block_h;
-    if (distSqFromCenter(left, top) <= max_r_sq &&
-        distSqFromCenter(right, top) <= max_r_sq &&
-        distSqFromCenter(left, bottom) <= max_r_sq &&
-        distSqFromCenter(right, bottom) <= max_r_sq) {
+    const Box b = tagBox(best);
+    if (distSqFromCenter(b.x0, b.y0) <= max_r_sq &&
+        distSqFromCenter(b.x1, b.y0) <= max_r_sq &&
+        distSqFromCenter(b.x0, b.y1) <= max_r_sq &&
+        distSqFromCenter(b.x1, b.y1) <= max_r_sq) {
       break;
     }
-    const int mid_x = (left + right) / 2;
-    const int mid_y = (top + bottom) / 2;
-    layout.anchor_x += mid_x < radar::kCenterX ? 1 : (mid_x > radar::kCenterX ? -1 : 0);
-    layout.top_y += mid_y < radar::kCenterY ? 1 : (mid_y > radar::kCenterY ? -1 : 0);
+    const int mid_x = (b.x0 + b.x1) / 2;
+    const int mid_y = (b.y0 + b.y1) / 2;
+    best.anchor_x += mid_x < radar::kCenterX ? 1 : (mid_x > radar::kCenterX ? -1 : 0);
+    best.top_y += mid_y < radar::kCenterY ? 1 : (mid_y > radar::kCenterY ? -1 : 0);
   }
-  return layout;
+  return best;
+}
+
+/**
+ * Thin line from the symbol to its tag when placement moved the tag away from
+ * the symbol, so it is clear which aircraft it belongs to.
+ */
+void drawTagLeader(int x, int y, const TagLayout& layout) {
+  const Box b = tagBox(layout);
+  // Nearest point of the tag box; a tag in its default spot is ~11 px away.
+  const int ex = std::max<int>(b.x0, std::min<int>(x, b.x1 - 1));
+  const int ey = std::max<int>(b.y0, std::min<int>(y, b.y1 - 1));
+  const float dx = static_cast<float>(ex - x);
+  const float dy = static_cast<float>(ey - y);
+  const float len = sqrtf(dx * dx + dy * dy);
+  constexpr float kStartGap = radar::kAircraftNoseLenPx + 2.0f;
+  if (len < kStartGap + 6.0f) {
+    return;  // tag sits right beside its symbol
+  }
+  const int sx = x + static_cast<int>(lroundf(dx / len * kStartGap));
+  const int sy = y + static_cast<int>(lroundf(dy / len * kStartGap));
+  if (s_sat_frame) {
+    s_draw->drawWideLine(sx, sy, ex, ey, 1.0f, kOutlineColor);
+  }
+  s_draw->drawLine(sx, sy, ex, ey, kColorTagLeader);
 }
 
 void drawTagBackdrop(const TagLayout& layout) {
@@ -735,17 +889,62 @@ void drawAircraft() {
     drawHeadingTriangle(x, y, planes[i].nose_deg, radar::kColorAircraft);
   }
 
-  // All backdrops first: a later tag's backdrop must not dim an earlier tag.
-  // The layout is recomputed in the second pass rather than stored (RAM).
-  if (s_sat_frame) {
-    for (size_t d = 0; d < draw_count; ++d) {
-      drawTagBackdrop(
-          layoutAircraftTag(items[d].x, items[d].y, planes[items[d].index]));
-    }
+  // Tag placement. Obstacles: every symbol, the fixed labels, the footer, and
+  // each tag as it is placed. Aircraft nearest the center choose first.
+  // Everything stays on the loop stack (~1.5 KB at the 64-aircraft cap).
+  constexpr size_t kFixedObstacles = 5;
+  Box obstacles[services::adsb::kMaxAircraft * 2 + kFixedObstacles];
+  size_t obstacle_count = 0;
+  // Cardinal letters at the bezel (approximate glyph boxes) and the footer.
+  obstacles[obstacle_count++] = makeBox(radar::kCenterX - 9, 0, radar::kCenterX + 9, 18);
+  obstacles[obstacle_count++] =
+      makeBox(radar::kCenterX - 9, radar::kSize - 18, radar::kCenterX + 9, radar::kSize);
+  obstacles[obstacle_count++] = makeBox(0, radar::kCenterY - 9, 16, radar::kCenterY + 9);
+  obstacles[obstacle_count++] =
+      makeBox(radar::kSize - 16, radar::kCenterY - 9, radar::kSize, radar::kCenterY + 9);
+  if (services::settings::footerEnabled()) {
+    obstacles[obstacle_count++] =
+        makeBox(28, radar::kFooterTopY, 212, radar::kSize);
   }
   for (size_t d = 0; d < draw_count; ++d) {
-    const services::adsb::Aircraft& plane = planes[items[d].index];
-    drawAircraftTag(layoutAircraftTag(items[d].x, items[d].y, plane), plane);
+    obstacles[obstacle_count++] = symbolBox(items[d].x, items[d].y);
+  }
+
+  struct TagPos {
+    int16_t anchor_x;
+    int16_t top_y;
+    bool on_right;
+  };
+  TagPos tag_pos[services::adsb::kMaxAircraft];
+  for (size_t k = draw_count; k-- > 0;) {  // items are sorted far-first
+    const TagLayout layout =
+        placeAircraftTag(items[k].x, items[k].y, planes[items[k].index],
+                         obstacles, obstacle_count);
+    obstacles[obstacle_count++] = tagBox(layout);
+    tag_pos[k] = TagPos{static_cast<int16_t>(layout.anchor_x),
+                        static_cast<int16_t>(layout.top_y), layout.on_right};
+  }
+
+  auto placedLayout = [&](size_t d) {
+    TagLayout layout = measureAircraftTag(planes[items[d].index]);
+    layout.anchor_x = tag_pos[d].anchor_x;
+    layout.top_y = tag_pos[d].top_y;
+    layout.on_right = tag_pos[d].on_right;
+    return layout;
+  };
+
+  // Leaders first, then each tag as a unit (backdrop + text), far to near: if
+  // tags still overlap, the later one covers the earlier cleanly instead of
+  // two texts mixing. Tags nearest the center end up on top.
+  for (size_t d = 0; d < draw_count; ++d) {
+    drawTagLeader(items[d].x, items[d].y, placedLayout(d));
+  }
+  for (size_t d = 0; d < draw_count; ++d) {
+    const TagLayout layout = placedLayout(d);
+    if (s_sat_frame) {
+      drawTagBackdrop(layout);
+    }
+    drawAircraftTag(layout, planes[items[d].index]);
   }
 }
 

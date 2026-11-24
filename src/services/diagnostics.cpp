@@ -190,6 +190,9 @@ void writeSystem(Print& out) {
   rowf(out, "Lowest free ever", "%u B",
        static_cast<unsigned>(ESP.getMinFreeHeap()));
   rowf(out, "PSRAM", "%u B", static_cast<unsigned>(ESP.getPsramSize()));
+  // The web server runs inside loop(), so this is the loop task's own stack.
+  rowf(out, "Loop stack headroom", "%u B never used",
+       static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
   out.print(F(
       "</table><p><small>A TLS handshake needs a large contiguous block. When "
       "\"largest free block\" drops well under ~40 KB, outbound HTTPS calls "
