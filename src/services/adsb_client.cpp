@@ -531,6 +531,9 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     return fetchFailed(0);
   }
 
+  // HTTP/1.0 keeps the server from using chunked encoding, so the raw stream
+  // is plain JSON and can be parsed while it arrives.
+  http.useHTTP10(true);
   http.setTimeout(kAdsbRequestTimeoutMs);
   const int code = performGetWithPoll(http, kAdsbRequestTimeoutMs);
   if (code != HTTP_CODE_OK) {
@@ -539,16 +542,20 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     return fetchFailed(code);
   }
 
-  String payload;
-  if (!readResponseBody(http, payload)) {
-    Serial.println("adsb: empty response");
-    http.end();
-    return fetchFailed(0);
+  // Parse straight from the TLS stream and keep only the fields we use. Over a
+  // busy airport the full response (~1 KB per aircraft) held as a String plus
+  // its unfiltered document used up the heap and broke the next TLS handshake.
+  JsonDocument filter;
+  JsonObject keep = filter["ac"].add<JsonObject>();
+  for (const char* field :
+       {"lat", "lon", "true_heading", "mag_heading", "track", "dir", "gs",
+        "tas", "ias", "alt_baro", "alt_geom", "hex", "flight", "t"}) {
+    keep[field] = true;
   }
-  http.end();
-
   JsonDocument doc;
-  const DeserializationError err = deserializeJson(doc, payload);
+  const DeserializationError err = deserializeJson(
+      doc, http.getStream(), DeserializationOption::Filter(filter));
+  http.end();
   if (err) {
     Serial.printf("adsb: JSON parse error: %s\n", err.c_str());
     return fetchFailed(0);
