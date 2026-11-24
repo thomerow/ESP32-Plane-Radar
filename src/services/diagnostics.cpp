@@ -165,6 +165,7 @@ void writeSystem(Print& out) {
   out.print(F("<h2>System</h2><table>"));
 
   const esp_partition_t* part = esp_ota_get_running_partition();
+  row(out, "Firmware version", config::kFirmwareVersion);
   rowf(out, "Firmware built", "%s %s", __DATE__, __TIME__);
   // Matches the md5 of .pio/build/supermini/firmware.bin, so it answers
   // "is the build I just made actually the one running?" without guesswork.

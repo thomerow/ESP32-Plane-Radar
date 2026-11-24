@@ -4,7 +4,16 @@
 
 #include <driver/gpio.h>
 
+// Set by scripts/firmware_version.py from the git tag ("2.0.0", or
+// "2.0.0-3-gabc1234[-dirty]" between releases).
+#ifndef PLANE_RADAR_VERSION
+#define PLANE_RADAR_VERSION "unknown"
+#endif
+
 namespace config {
+
+/** Firmware version, shown on /info, /debug and in the serial log. */
+constexpr char kFirmwareVersion[] = PLANE_RADAR_VERSION;
 
 // --- Wi-Fi portal ---
 constexpr char kPortalApName[] = "PlaneRadar-Setup";

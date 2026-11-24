@@ -42,6 +42,8 @@ image). Otherwise use path C.
 3. Sign in as `admin` with your OTA password (initially **`plane-radar`**)
 4. Upload the **`-ota.bin`** file — never the `-full.bin`
 5. Keep the power connected; the device writes the update and restarts
+6. To check: **Setup → Info** (or `/debug`) shows the running firmware
+   version, e.g. *Plane Radar 2.1.0* (v2.0.0 does not show one yet)
 
 ### B. Flash over USB (full image)
 
@@ -71,7 +73,8 @@ image written at offset **`0x0`**; OTA image is app-only (two 1.75 MB OTA
 slots, partition table in `partitions/plane_radar.csv`); native USB
 Serial/JTAG, so no USB-UART driver; command-line equivalent of step 3:
 `esptool.py --chip esp32c3 --port <port> write_flash 0x0 plane-radar-<version>-full.bin`
-(`pip install esptool`). Serial log at 115200 baud.
+(`pip install esptool`). Serial log at 115200 baud; its first line is
+`Plane Radar <version>`.
 
 ### C. Build from source
 
@@ -174,8 +177,8 @@ actually exist here (`/param`, `/debug`, `/screen.bmp`, `/firmware`, …) instea
 of the library's stock list, whose `/u` link no longer leads anywhere. The
 sketch size is shown against the running app partition, the chip temperature in
 °C only, the mDNS name next to the DHCP hostname, and the build date is replaced
-by the sketch MD5 (the stock date comes from a library file that is not always
-recompiled).
+by the firmware version and the sketch MD5 (the stock date comes from a library
+file that is not always recompiled).
 
 ## Diagnostics page
 
@@ -191,7 +194,7 @@ rather than what it should be computing:
 | **ADS-B service** | Fetch and enrichment counters, last error code, TLS recovery reboots, aircraft in the last response, cache usage |
 | **Weather and time** | The formatted footer strings, even when the footer is switched off |
 | **Network** | SSID, RSSI, channel, IP, MAC, TX power |
-| **System** | Firmware build time, **sketch MD5**, running OTA partition, uptime, reset reason, chip, temperature |
+| **System** | Firmware version, build time, **sketch MD5**, running OTA partition, uptime, reset reason, chip, temperature |
 | **Memory** | Free heap, largest contiguous block, lowest free ever, loop-task stack headroom |
 
 **`http://plane-radar.local/screen.bmp`** returns the last rendered frame as a
@@ -199,6 +202,11 @@ rather than what it should be computing:
 change without photographing the display.
 
 Worth knowing:
+
+**Firmware version** comes from the git tag at build time
+(`scripts/firmware_version.py`): `2.1.0` for a release, `2.1.0-3-gabc1234` for
+a build three commits after it, with `-dirty` when it was built with
+uncommitted changes.
 
 **Sketch MD5** equals the md5sum of `.pio/build/supermini/firmware.bin`, so you
 can tell at a glance whether the build you just made is the one running — the
@@ -396,6 +404,7 @@ partitions/
   plane_radar.csv          — dual-OTA 4 MB layout; the 384 KB `spiffs` partition holds the LittleFS image cache
 scripts/
   build_large_airports.py  — regenerates the embedded airport/runway tables
+  firmware_version.py      — post-build hook: version from the git tag
   merge_firmware.py        — post-build hook: `pio run -t merge`
   merge-firmware.sh        — writes release/plane-radar-merged.bin
 src/
@@ -484,14 +493,17 @@ The firmware uses two 1.75 MB application slots. The OTA image is the plain app,
 | [Build](.github/workflows/build.yml) | Push to `main`/`master`, any PR, manual | Artifact `plane-radar-supermini` (merged + split `.bin` files, ~90 days) |
 | [Release](.github/workflows/release.yml) | Git tag `v*` (e.g. `v1.0.0`) | GitHub Release `-full.bin` and `-ota.bin` assets + checksums |
 
-To ship a version users can download:
+To ship a version users can download, create an annotated tag and push it:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag -a v2.1.0 -m "Plane Radar 2.1.0" -m "- What changed
+- What else changed"
+git push origin v2.1.0
 ```
 
-The release workflow attaches both images. Use `-full.bin` at offset `0x0` for first install/recovery and `-ota.bin` in the device's authenticated firmware page.
+The tag message becomes the release text (followed by GitHub's "Full
+Changelog" link), and the version number is baked into the firmware. The
+release workflow attaches both images. Use `-full.bin` at offset `0x0` for first install/recovery and `-ota.bin` in the device's authenticated firmware page.
 
 ## Dependencies
 

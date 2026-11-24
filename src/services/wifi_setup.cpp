@@ -111,7 +111,9 @@ class PlaneRadarWiFiManager : public WiFiManager {
     page += getInfoData("aboutver");
     page += getInfoData("aboutarduinover");
     page += getInfoData("aboutidfver");
-    page += F("<dt>Firmware</dt><dd>Plane Radar, sketch MD5 ");
+    page += F("<dt>Firmware</dt><dd>Plane Radar ");
+    page += config::kFirmwareVersion;
+    page += F(", sketch MD5 ");
     page += ESP.getSketchMD5();
     page += F("<br/><small>Equals the md5sum of firmware.bin</small></dd></dl>");
 

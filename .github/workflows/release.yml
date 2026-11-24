@@ -16,6 +16,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history and tags, so the firmware version ("git describe")
+          # names the last release.
+          fetch-depth: 0
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
@@ -55,10 +59,26 @@ jobs:
           done
           echo "version=${VERSION}" >> "$GITHUB_ENV"
 
+      - name: Release text from the tag message
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            # checkout may store the tag without its message; fetch the real one.
+            git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          fi
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "$(git cat-file -t "${GITHUB_REF_NAME}")" == "tag" ]]; then
+            # Annotated tag: its message (subject line, blank line, body) becomes the release text.
+            git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "${GITHUB_REF_NAME}" > release-notes.md
+          else
+            echo "Firmware build ${version}." > release-notes.md
+          fi
+          cat release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body_path: release-notes.md
+          # Appends the "Full Changelog" link below the tag message.
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
