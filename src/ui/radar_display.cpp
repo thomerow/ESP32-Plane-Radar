@@ -264,10 +264,10 @@ void offsetKmFromCenter(float lat, float lon, float* dx_km, float* dy_km,
   *dist_km = sqrtf((*dx_km) * (*dx_km) + (*dy_km) * (*dy_km));
 }
 
-float innerRingMaxKm() {
+/** Distance (km) up to which aircraft are drawn as symbols, not rim dots. */
+float symbolMaxKm() {
   const float outer_km = radar::rangeCurrent().outer_km;
-  return outer_km * (static_cast<float>(radar::kGridOuterRadius -
-                                       radar::kAircraftInsideRingInsetPx) /
+  return outer_km * (static_cast<float>(radar::kAircraftMaxRadiusPx) /
                      static_cast<float>(radar::kGridOuterRadius));
 }
 
@@ -285,17 +285,12 @@ void latLonToScreen(float lat, float lon, int* out_x, int* out_y) {
   *out_y = radar::kCenterY - static_cast<int>(lroundf(dy_km * px_per_km));
 }
 
-bool isInsideOuterRingKm(float dist_km) { return dist_km <= innerRingMaxKm(); }
+bool isSymbolDistanceKm(float dist_km) { return dist_km <= symbolMaxKm(); }
 
 int distSqFromCenter(int x, int y) {
   const int dx = x - radar::kCenterX;
   const int dy = y - radar::kCenterY;
   return dx * dx + dy * dy;
-}
-
-bool isInsideOuterRing(int x, int y) {
-  const int max_r = radar::kGridOuterRadius - radar::kAircraftInsideRingInsetPx;
-  return distSqFromCenter(x, y) <= max_r * max_r;
 }
 
 /** Rim dot from true bearing; always on screen edge (even if target is 50+ km away). */
@@ -307,7 +302,7 @@ bool beyondRingEdgeDotFromLatLon(float lat, float lon, int* out_x, int* out_y) {
   if (dist_km < 0.01f) {
     return false;
   }
-  if (isInsideOuterRingKm(dist_km)) {
+  if (isSymbolDistanceKm(dist_km)) {
     return false;
   }
 
@@ -330,8 +325,9 @@ void drawBeyondRingDot(int x, int y) {
                            radar::kColorAircraft);
 }
 
-void clipPointToOuterRing(int x0, int y0, int* x1, int* y1) {
-  const int max_r = radar::kGridOuterRadius;
+/** Shorten the segment (x0,y0)→(x1,y1) so its end stays on the round panel. */
+void clipPointToScreenEdge(int x0, int y0, int* x1, int* y1) {
+  const int max_r = radar::kScreenRadiusPx;
   const int max_r_sq = max_r * max_r;
   if (distSqFromCenter(*x1, *y1) <= max_r_sq) {
     return;
@@ -422,7 +418,7 @@ void drawSpeedVector(int cx, int cy, float heading_deg, float track_deg,
   const float rad = track_deg * kDegToRad;
   int ex = tip_x + static_cast<int>(lroundf(sinf(rad) * len));
   int ey = tip_y - static_cast<int>(lroundf(cosf(rad) * len));
-  clipPointToOuterRing(tip_x, tip_y, &ex, &ey);
+  clipPointToScreenEdge(tip_x, tip_y, &ex, &ey);
   if (ex == tip_x && ey == tip_y) {
     return;
   }
@@ -504,6 +500,28 @@ TagLayout layoutAircraftTag(int x, int y,
   }
   layout.top_y = std::max(
       1, std::min(y - layout.block_h / 2, radar::kSize - layout.block_h - 1));
+
+  // Near the edge the square block would reach into the panel's round corners:
+  // nudge it toward the center until all four corners are on the panel.
+  const int max_r = radar::kScreenRadiusPx - 1;
+  const int max_r_sq = max_r * max_r;
+  for (int step = 0; step < 80; ++step) {
+    const int left =
+        layout.on_right ? layout.anchor_x : layout.anchor_x - layout.block_w;
+    const int right = left + layout.block_w;
+    const int top = layout.top_y;
+    const int bottom = top + layout.block_h;
+    if (distSqFromCenter(left, top) <= max_r_sq &&
+        distSqFromCenter(right, top) <= max_r_sq &&
+        distSqFromCenter(left, bottom) <= max_r_sq &&
+        distSqFromCenter(right, bottom) <= max_r_sq) {
+      break;
+    }
+    const int mid_x = (left + right) / 2;
+    const int mid_y = (top + bottom) / 2;
+    layout.anchor_x += mid_x < radar::kCenterX ? 1 : (mid_x > radar::kCenterX ? -1 : 0);
+    layout.top_y += mid_y < radar::kCenterY ? 1 : (mid_y > radar::kCenterY ? -1 : 0);
+  }
   return layout;
 }
 
@@ -675,7 +693,7 @@ void drawAircraft() {
     float dist_km = 0.0f;
     offsetKmFromCenter(planes[i].lat, planes[i].lon, &dx_km, &dy_km, &dist_km);
 
-    if (isInsideOuterRingKm(dist_km)) {
+    if (isSymbolDistanceKm(dist_km)) {
       int x = 0;
       int y = 0;
       latLonToScreen(planes[i].lat, planes[i].lon, &x, &y);
@@ -997,7 +1015,7 @@ void radarProjectionDiagnostics(Print& out) {
            "<tr><th>Plot scale</th><td>%.2f px/km, rim dots beyond %.2f km"
            "</td></tr><tr><th>Frame sprite</th><td>%s</td></tr></table>",
            static_cast<double>(radar::kGridOuterRadius) / outer_km,
-           innerRingMaxKm(),
+           symbolMaxKm(),
            s_frame_ready ? "allocated (115 KB)"
                          : "NOT allocated &mdash; drawing direct to panel");
   out.print(buf);
@@ -1029,7 +1047,7 @@ void radarProjectionDiagnostics(Print& out) {
              "<td>%+.2f</td><td>%+.2f</td><td>%.2f km</td><td>%d, %d</td>"
              "<td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>",
              list[i].callsign, list[i].hex, list[i].lat, list[i].lon, dx, dy,
-             dist, x, y, dist > innerRingMaxKm() ? "rim dot" : "symbol",
+             dist, x, y, dist > symbolMaxKm() ? "rim dot" : "symbol",
              list[i].route[0] != '\0' ? list[i].route : "&mdash;",
              list[i].type[0] != '\0' ? list[i].type : "&mdash;",
              list[i].alt[0] != '\0' ? list[i].alt : "&mdash;");

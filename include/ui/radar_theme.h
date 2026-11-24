@@ -52,9 +52,14 @@ constexpr int kRunwayLabelHeightPx = kCardinalLabelHeightPx;
 constexpr int kRunwayLabelGapPx = 3;
 /** Gap from triangle edge to tag block (px). */
 constexpr int kAircraftLabelGapPx = 1;
-/** Keep symbol centroid inside outer ring by at least this inset (px). */
-constexpr int kAircraftInsideRingInsetPx =
-    kAircraftNoseLenPx + kAircraftTailHalfPx + 1;
+/** Last pixel radius that is still on the round panel. */
+constexpr int kScreenRadiusPx = kSize / 2 - 1;
+/**
+ * Aircraft symbols are drawn up to this distance from the center (px); beyond
+ * it they become rim dots. Tied to the panel edge, not to the grid ring, so a
+ * plane turns into a symbol as soon as its nose (plus outline) fits on screen.
+ */
+constexpr int kAircraftMaxRadiusPx = kSize / 2 - kAircraftNoseLenPx - 2;
 
 /** Beyond-ring traffic: bearing cues on screen rim (correct direction, fixed radius). */
 constexpr int kBeyondRingDotRadiusPx = 4;

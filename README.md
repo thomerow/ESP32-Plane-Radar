@@ -194,9 +194,9 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 
 ### Aircraft
 
-- **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring), route / detailed type / altitude tags
-- **Beyond ~88 % of the outer radius** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
-- **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
+- **Up to 110 px from the center** (just inside the panel edge, past the outer ring) — red heading triangle, magenta speed vector (clipped at the panel edge), route / detailed type / altitude tags
+- **Beyond that** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate)
+- **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**; near the edge the block is nudged inward so no corner falls off the round panel
 - **Route fallback** — the callsign is shown until route data arrives, and remains the fallback when no route is known
 - **Detailed type** — aircraft data is compacted for the display (for example `Boeing 737-800` → `B737-800`)
 
