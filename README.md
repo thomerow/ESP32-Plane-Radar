@@ -78,6 +78,17 @@ manually. The device itself never fetches map data.
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
 
+## Info page
+
+**Setup → Info** (`/info`) is WiFiManager's info page, served by the firmware
+so it matches this device: its **Available pages** table lists the pages that
+actually exist here (`/param`, `/debug`, `/screen.bmp`, `/firmware`, …) instead
+of the library's stock list, whose `/u` link no longer leads anywhere. The
+sketch size is shown against the running app partition, the chip temperature in
+°C only, the mDNS name next to the DHCP hostname, and the build date is replaced
+by the sketch MD5 (the stock date comes from a library file that is not always
+recompiled).
+
 ## Diagnostics page
 
 **Setup → Diagnostics**, or `http://plane-radar.local/debug` directly. A

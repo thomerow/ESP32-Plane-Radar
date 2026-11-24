@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include <Preferences.h>
+#include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_wifi.h>
 
@@ -62,7 +63,95 @@ constexpr char kWifiPrefsNamespace[] = "wifi";
 constexpr char kPrefsForcePortalKey[] = "portal";
 
 bool s_force_config_portal = false;
-WiFiManager s_wm;
+/**
+ * WiFiManager with an /info page that matches this firmware. The stock page
+ * lists the library's own routes (including "/u OTA Update", which this
+ * firmware took over for authenticated uploads) and none of ours, adds the
+ * other OTA slot to the sketch "total", converts the chip temperature to
+ * Fahrenheit wrongly, and takes its build date from a library file that is not
+ * always recompiled. Everything else is rendered with the library's own rows.
+ */
+class PlaneRadarWiFiManager : public WiFiManager {
+ public:
+  void handleInfoPage() {
+    handleRequest();
+    String page = getHTTPHead(FPSTR(S_titleinfo));
+    reportStatus(page);
+
+    for (const char* id : {"esphead", "uptime", "chipid", "chiprev", "idesize",
+                           "flashsize", "cpufreq", "freeheap"}) {
+      page += getInfoData(id);
+    }
+    const esp_partition_t* part = esp_ota_get_running_partition();
+    const unsigned used = static_cast<unsigned>(ESP.getSketchSize());
+    const unsigned slot = part != nullptr ? static_cast<unsigned>(part->size) : 0;
+    page += F("<dt>Memory - Sketch size</dt><dd>Used / app partition bytes<br/>");
+    page += String(used) + " / " + String(slot);
+    page += "<br/><progress value='" + String(used) + "' max='" + String(slot) +
+            "'></progress></dd>";
+    page += getInfoData("lastreset");
+    page += F("<dt>Temperature</dt><dd>");
+    page += String(temperatureRead(), 1);
+    page += F(" &deg;C (uncalibrated chip sensor)</dd>");
+
+    for (const char* id : {"wifihead", "conx", "stassid", "staip", "stagw",
+                           "stasub", "dnss", "host"}) {
+      page += getInfoData(id);
+    }
+    page += F("<dt>mDNS name</dt><dd>");
+    page += config::kPortalHostUrl;
+    page += F("</dd>");
+    for (const char* id : {"stamac", "apssid", "wifiaphead", "apip", "apmac",
+                           "aphost", "apbssid"}) {
+      page += getInfoData(id);
+    }
+    page += F("</dl>");
+
+    page += F("<h3>About</h3><hr><dl>");
+    page += getInfoData("aboutver");
+    page += getInfoData("aboutarduinover");
+    page += getInfoData("aboutidfver");
+    page += F("<dt>Firmware</dt><dd>Plane Radar, sketch MD5 ");
+    page += ESP.getSketchMD5();
+    page += F("<br/><small>Equals the md5sum of firmware.bin</small></dd></dl>");
+
+    if (_showInfoErase) {
+      page += FPSTR(HTTP_ERASEBTN);
+    }
+    page += F(
+        "<br/><h3>Available pages</h3><hr>"
+        "<table class='table'><thead><tr><th>Page</th><th>Function</th></tr>"
+        "</thead><tbody>"
+        "<tr><td><a href='/'>/</a></td><td>Menu</td></tr>"
+        "<tr><td><a href='/wifi'>/wifi</a></td><td>Scan for networks and "
+        "change the Wi-Fi connection (<a href='/0wifi'>/0wifi</a> without "
+        "scanning)</td></tr>"
+        "<tr><td><a href='/param'>/param</a></td><td>Setup: radar location "
+        "(map picker), units, runways, footer and weather, text size, "
+        "satellite background and brightness, rain radar, OTA password</td></tr>"
+        "<tr><td><a href='/info'>/info</a></td><td>This page</td></tr>"
+        "<tr><td><a href='/debug'>/debug</a></td><td>Diagnostics: projection, "
+        "aircraft, airports, satellite and rain status, ADS-B and TLS "
+        "counters, memory</td></tr>"
+        "<tr><td><a href='/screen.bmp'>/screen.bmp</a></td><td>The current "
+        "display as a 240&times;240 image</td></tr>"
+        "<tr><td><a href='/firmware'>/firmware</a></td><td>Firmware update "
+        "(password protected, user <code>admin</code>; <code>/update</code> "
+        "leads here too)</td></tr>"
+        "<tr><td>/restart</td><td>Reboot the device</td></tr>"
+        "<tr><td>/exit</td><td>Close the configuration portal until the next "
+        "reboot</td></tr>"
+        "<tr><td>/close</td><td>Close the captive-portal popup (setup access "
+        "point only)</td></tr>"
+        "<tr><td>/erase</td><td>Erase the Wi-Fi configuration and reboot; the "
+        "device opens the setup access point again</td></tr>"
+        "</tbody></table>");
+    page += FPSTR(HTTP_END);
+    HTTPSend(page);
+  }
+};
+
+PlaneRadarWiFiManager s_wm;
 bool s_wm_configured = false;
 
 void ensureWifiManager();
@@ -377,7 +466,9 @@ void attachSettingsRoutes() {
   // Register before WiFiManager's built-in /paramsave handler so the custom
   // confirmation can redirect back to Setup.
   s_wm.server->on("/paramsave", HTTP_POST, handleSettingsSaved);
-s_wm.server->on("/debug", HTTP_GET, []() {
+  // Registered before WiFiManager's own /info, so this version wins.
+  s_wm.server->on("/info", HTTP_GET, []() { s_wm.handleInfoPage(); });
+  s_wm.server->on("/debug", HTTP_GET, []() {
     if (s_wm.server) {
       services::diag::handleRequest(*s_wm.server);
     }
