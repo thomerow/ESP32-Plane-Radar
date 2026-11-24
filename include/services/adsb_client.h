@@ -18,6 +18,11 @@ struct Stats {
   size_t cache_used = 0;
   /** Aircraft in the last response, before the nearest-64 cut. */
   size_t last_total = 0;
+  /**
+   * Consecutive fetches that failed because mbedTLS could not allocate its
+   * buffers (heap too fragmented); reset by any fetch that gets past TLS.
+   */
+  uint32_t tls_alloc_fail_streak = 0;
 };
 
 const Stats& stats();

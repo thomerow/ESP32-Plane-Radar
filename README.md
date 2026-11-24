@@ -118,6 +118,18 @@ that figure falls well under ~40 KB, ADS-B or weather fetches start failing with
 looks comfortable. The frame sprite (240×240 at 16 bpp = 115 KB) is allocated
 once and held for the life of the process, which is what keeps the ceiling low.
 
+**Fragmented heap at boot.** Every HTTPS connection needs two contiguous
+~16.7 KB mbedTLS buffers (`MBEDTLS_SSL_MAX_CONTENT_LEN` is 16384 in both
+directions in the precompiled framework). On some boots the Wi-Fi, mDNS and web
+server allocations split the heap so that two such blocks never exist again;
+then every HTTPS call fails with `SSL - Memory allocation failed` until the next
+reboot. The firmware reserves 40 KB at the very start of `setup()` and frees it
+once everything else is allocated, which makes this rarer, and reboots itself
+after three consecutive fetches that failed for exactly this reason (about
+30 s). The counter lives in RTC memory and stops after five attempts, so a
+persistent cause cannot become a reboot loop; **TLS recovery reboots** on this
+page shows how often it happened since power-on.
+
 The page streams itself in ~1 KB chunks instead of building the whole document
 in RAM, and costs nothing when nobody requests it. Like the rest of the portal
 it has **no password**.

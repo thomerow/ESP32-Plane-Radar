@@ -20,6 +20,8 @@ constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kAdsbRequestTimeoutMs = 10000;
 constexpr size_t kEnrichmentCacheSize = 48;
+/** MBEDTLS_ERR_SSL_ALLOC_FAILED: no heap block large enough for TLS buffers. */
+constexpr int kTlsAllocFailed = -0x7F00;
 
 Aircraft s_aircraft[kMaxAircraft];
 size_t s_aircraft_count = 0;
@@ -558,10 +560,17 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   http.setTimeout(kAdsbRequestTimeoutMs);
   const int code = performGetWithPoll(http, kAdsbRequestTimeoutMs);
   if (code != HTTP_CODE_OK) {
+    char tls_text[8];
+    if (client.lastError(tls_text, sizeof(tls_text)) == kTlsAllocFailed) {
+      ++s_stats.tls_alloc_fail_streak;
+    } else {
+      s_stats.tls_alloc_fail_streak = 0;
+    }
     Serial.printf("adsb: HTTP %d\n", code);
     http.end();
     return fetchFailed(code);
   }
+  s_stats.tls_alloc_fail_streak = 0;
 
   // Parse the "ac" array one aircraft at a time straight from the TLS stream,
   // keeping only the fields we use. Memory stays constant however many

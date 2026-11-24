@@ -4,6 +4,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_attr.h>
+#include <esp_heap_caps.h>
 
 #include "config.h"
 #include "hardware/display.h"
@@ -26,6 +28,65 @@ bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
+
+/**
+ * Heap reserved at the very start of setup() and freed only once Wi-Fi, mDNS,
+ * the LAN web portal and the 115 KB frame sprite have all taken their memory.
+ * Without it, on about one boot in four (also before the satellite/rain work)
+ * those allocations split the heap so that no block was large enough for
+ * mbedTLS, and every HTTPS call failed until the next reboot.
+ */
+constexpr size_t kTlsReserveBytes = 40 * 1024;
+void* g_tls_reserve = nullptr;
+
+/**
+ * Last resort for the fragmented-heap boot: mbedTLS needs two contiguous
+ * ~16.7 KB buffers per connection and on some boots never finds them again.
+ * A reboot almost always lands in a usable layout. The attempt counter lives
+ * in RTC memory (survives the restart, not a power cycle) so a persistent
+ * cause cannot turn into a reboot loop.
+ */
+constexpr uint32_t kTlsRecoveryAfterFailures = 3;  // ~30 s of failed fetches
+constexpr uint32_t kTlsRecoveryMaxReboots = 5;
+constexpr uint32_t kRecoveryMagic = 0x504C5241;  // "PLRA"
+RTC_NOINIT_ATTR uint32_t g_recovery_magic;
+RTC_NOINIT_ATTR uint32_t g_recovery_reboots;
+
+void initRecoveryCounter() {
+  if (g_recovery_magic != kRecoveryMagic) {
+    g_recovery_magic = kRecoveryMagic;
+    g_recovery_reboots = 0;
+  }
+}
+
+void checkTlsRecovery() {
+  const auto& st = services::adsb::stats();
+  if (st.tls_alloc_fail_streak == 0 && st.fetch_ok > 0) {
+    g_recovery_reboots = 0;  // healthy again
+    return;
+  }
+  if (st.tls_alloc_fail_streak < kTlsRecoveryAfterFailures ||
+      g_recovery_reboots >= kTlsRecoveryMaxReboots) {
+    return;
+  }
+  ++g_recovery_reboots;
+  Serial.printf("heap: TLS cannot allocate its buffers, rebooting (%u/%u)\n",
+                static_cast<unsigned>(g_recovery_reboots),
+                static_cast<unsigned>(kTlsRecoveryMaxReboots));
+  delay(100);
+  ESP.restart();
+}
+
+void releaseTlsReserve() {
+  if (g_tls_reserve == nullptr) {
+    return;
+  }
+  free(g_tls_reserve);
+  g_tls_reserve = nullptr;
+  Serial.printf("heap: TLS reserve released, largest block %u B\n",
+                static_cast<unsigned>(
+                    heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
+}
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -79,12 +140,20 @@ void fetchAndDrawAircraft() {
   const float fetch_km = ui::radar::fetchRadiusKm();
   if (!services::adsb::fetchUpdate(services::location::lat(),
                                    services::location::lon(), fetch_km)) {
+    checkTlsRecovery();
     handleBootButton();
     return;
   }
+  checkTlsRecovery();
   ui::radarDisplayRefreshAircraft();
   handleBootButton();
 }
+
+}  // namespace
+
+uint32_t tlsRecoveryReboots() { return g_recovery_reboots; }
+
+namespace {
 
 }  // namespace
 
@@ -93,6 +162,8 @@ void setup() {
   delay(500);
   Serial.println();
   Serial.println("Plane Radar");
+  g_tls_reserve = malloc(kTlsReserveBytes);  // see releaseTlsReserve()
+  initRecoveryCounter();
 
   bootButtonInit();
   displayInit();
@@ -117,6 +188,10 @@ void setup() {
 void loop() {
   handleBootButton();
   wifiLoop();
+  if (g_radar_visible) {
+    // Wi-Fi, web portal and frame sprite are in place: hand the hole to TLS.
+    releaseTlsReserve();
+  }
 
   if (services::ota::inProgress()) {
     delay(10);

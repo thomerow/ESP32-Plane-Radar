@@ -19,6 +19,9 @@
 #include "ui/radar_range.h"
 #include "ui/runway_overlay.h"
 
+/** Defined in main.cpp: reboots done to recover from a fragmented heap. */
+uint32_t tlsRecoveryReboots();
+
 namespace services::diag {
 namespace {
 
@@ -280,6 +283,8 @@ void writeAdsb(Print& out) {
     rowf(out, "Last success", "%lu s ago",
          (millis() - st.last_ok_ms) / 1000UL);
   }
+  rowf(out, "TLS recovery reboots", "%lu since power-on (heap too fragmented "
+       "for HTTPS)", static_cast<unsigned long>(tlsRecoveryReboots()));
   rowf(out, "Last response", "%u aircraft in fetch radius (max %u kept)",
        static_cast<unsigned>(st.last_total),
        static_cast<unsigned>(services::adsb::kMaxAircraft));
